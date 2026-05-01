@@ -15,6 +15,7 @@ type Sprite = {
   size: number;
   direction: number;
   tone: string;
+  visible: boolean;
   workspaceState: string | null;
   program: ScriptNode[];
   sayText?: string;
@@ -23,9 +24,9 @@ type Sprite = {
 const tones = ["#56CBF9", "#7FBEEB", "#AFBED1", "#EAC5D8", "#DBD8F0"];
 
 const initialSprites: Sprite[] = [
-  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, tone: "#56CBF9", workspaceState: null, program: [] },
-  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, tone: "#7FBEEB", workspaceState: null, program: [] },
-  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, tone: "#AFBED1", workspaceState: null, program: [] },
+  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, tone: "#56CBF9", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, tone: "#AFBED1", visible: true, workspaceState: null, program: [] },
 ];
 
 const stageRange = { minX: -240, maxX: 240, minY: -180, maxY: 180 };
@@ -65,12 +66,17 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
+function normalizeDirection(direction: number) {
+  return ((direction % 360) + 360) % 360; 
+}
+
 export default function Home() {
   const [sprites, setSprites] = useState<Sprite[]>(initialSprites);
   const [activeId, setActiveId] = useState<string>(initialSprites[0].id);
   const [isRunning, setIsRunning] = useState(false);
   const runIdRef = useRef(0);
   const pressedKeysRef = useRef(new Set<string>());
+  const spritesRef = useRef(sprites);
 
   const activeSprite = useMemo(
     () => sprites.find((s) => s.id === activeId) ?? sprites[0],
@@ -80,6 +86,10 @@ export default function Home() {
   const activeGeneratedCode = useMemo(() => {
     return astToJs(activeSprite?.program ?? []);
   }, [activeSprite?.program]);
+
+  useEffect(() => {
+    spritesRef.current = sprites;
+  }, [sprites]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -132,6 +142,7 @@ export default function Home() {
       size: 88,
       direction: 90,
       tone,
+      visible: true,
       workspaceState: null,
       program: [],
     };
@@ -167,6 +178,11 @@ export default function Home() {
         wait,
         nextFrame: () => wait(16),
         keyDown: (key) => pressedKeysRef.current.has(key),
+        touchingEdge: () => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite) return false;
+          return sprite.x <= stageRange.minX || sprite.x >= stageRange.maxX || sprite.y <= stageRange.minY || sprite.y >= stageRange.maxY;
+        },
         move: (steps) => {
           setSprites((curr) =>
             curr.map((sprite) => {
@@ -213,8 +229,52 @@ export default function Home() {
             ),
           );
         },
+        setX: (x) => {
+          updateSprite(spriteId, { x: clamp(x, stageRange.minX, stageRange.maxX) });
+        },
+        setY: (y) => {
+          updateSprite(spriteId, { y: clamp(y, stageRange.minY, stageRange.maxY) });
+        },
+        setDirection: (direction) => {
+          updateSprite(spriteId, { direction: normalizeDirection(direction) });
+        },
+        ifOnEdgeBounce: () => {
+          setSprites((curr) =>
+            curr.map((sprite) => {
+              if (sprite.id !== spriteId) return sprite;
+              const hitX = sprite.x <= stageRange.minX || sprite.x >= stageRange.maxX;
+              const hitY = sprite.y <= stageRange.minY || sprite.y >= stageRange.maxY;
+              if (!hitX && !hitY) return sprite;
+
+              let nextDirection = sprite.direction;
+              if (hitX && hitY) nextDirection += 180;
+              else if (hitX) nextDirection = 360 - sprite.direction;
+              else nextDirection = 180 - sprite.direction;
+
+              return { ...sprite, direction: normalizeDirection(nextDirection) };
+            }),
+          );
+        },
         say: (text) => {
           updateSprite(spriteId, { sayText: text });
+        },
+        changeSize: (amount) => {
+          setSprites((curr) =>
+            curr.map((sprite) =>
+              sprite.id === spriteId
+                ? { ...sprite, size: clamp(sprite.size + amount, 1, 300) }
+                : sprite,
+            ),
+          );
+        },
+        setSize: (size) => {
+          updateSprite(spriteId, { size: clamp(size, 1, 300) });
+        },
+        show: () => {
+          updateSprite(spriteId, { visible: true });
+        },
+        hide: () => {
+          updateSprite(spriteId, { visible: false, sayText: undefined });
         },
       });
     },
@@ -244,7 +304,7 @@ export default function Home() {
   const resetSprites = () => {
     stopAllSprites();
     setSprites((curr) =>
-      curr.map((sprite) => ({ ...sprite, x: 0, y: 0, direction: 90, sayText: undefined })),
+      curr.map((sprite) => ({ ...sprite, x: 0, y: 0, direction: 90, visible: true, sayText: undefined })),
     );
   };
 
@@ -346,7 +406,7 @@ export default function Home() {
             </div>
             <div className="stage-viewport">
               <div className="stage-grid-bg" />
-              {sprites.map((sprite) => (
+              {sprites.map((sprite) => sprite.visible ? (
                 <div
                   key={sprite.id}
                   className={`stage-sprite ${sprite.id === activeId ? "stage-sprite-active" : ""}`}
@@ -357,7 +417,7 @@ export default function Home() {
                     style={{ color: sprite.tone }}
                   />
                 </div>
-              ))}
+              ) : null)}
               {sprites.map((sprite) =>
                 sprite.sayText ? (
                   <div
@@ -472,9 +532,10 @@ export default function Home() {
                   <button
                     className="btn btn-ghost"
                     style={{ height: 28, padding: "0 10px", fontSize: "0.75rem" }}
+                    onClick={() => updateActive({ visible: !activeSprite.visible })}
                     type="button"
                   >
-                    Show
+                    {activeSprite.visible ? "Hide" : "Show"}
                   </button>
                   <button
                     className="btn btn-ghost"

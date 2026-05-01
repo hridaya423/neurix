@@ -8,10 +8,20 @@ function line(depth: number, content: string) {
   return `${"  ".repeat(depth)}${content}`;
 }
 
-function conditionToJs(condition: ScriptCondition) {
+function conditionToJs(condition: ScriptCondition): string {
   switch (condition.type) {
     case "keyPressed":
       return `api.keyDown(${jsString(condition.key)})`;
+    case "touchingEdge":
+      return "sprite.touchingEdge()";
+    case "not":
+      return `!(${conditionToJs(condition.condition)})`;
+    case "and":
+      return `(${conditionToJs(condition.left)} && ${conditionToJs(condition.right)})`;
+    case "or":
+      return `(${conditionToJs(condition.left)} || ${conditionToJs(condition.right)})`;
+    case "compare":
+      return `${condition.left} ${condition.operator === "=" ? "===" : condition.operator} ${condition.right}`;
   }
 }
 
@@ -30,8 +40,41 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `sprite.changeX(${node.dx});`)];
       case "changeY":
         return [line(depth, `sprite.changeY(${node.dy});`)];
+      case "setX":
+        return [line(depth, `sprite.setX(${node.x});`)];
+      case "setY":
+        return [line(depth, `sprite.setY(${node.y});`)];
+      case "setDirection":
+      case "pointInDirection":
+        return [line(depth, `sprite.setDirection(${node.direction});`)];
+      case "ifOnEdgeBounce":
+        return [line(depth, "sprite.ifOnEdgeBounce();")];
       case "say":
         return [line(depth, `await api.say(${jsString(node.text)});`)];
+      case "sayForSeconds":
+        return [
+          line(depth, `api.say(${jsString(node.text)});`),
+          line(depth, `await api.wait(${Math.max(0, node.seconds) * 1000});`),
+          line(depth, "api.say(undefined);"),
+        ];
+      case "think":
+        return [line(depth, `await api.say(${jsString(node.text)});`)];
+      case "thinkForSeconds":
+        return [
+          line(depth, `api.say(${jsString(node.text)});`),
+          line(depth, `await api.wait(${Math.max(0, node.seconds) * 1000});`),
+          line(depth, "api.say(undefined);"),
+        ];
+      case "clearSpeech":
+        return [line(depth, "api.say(undefined);")];
+      case "changeSize":
+        return [line(depth, `sprite.changeSize(${node.amount});`)];
+      case "setSize":
+        return [line(depth, `sprite.setSize(${node.size});`)];
+      case "show":
+        return [line(depth, "sprite.show();")];
+      case "hide":
+        return [line(depth, "sprite.hide();")];
       case "wait":
         return [line(depth, `await api.wait(${Math.max(0, node.seconds) * 1000});`)];
       case "repeat":
@@ -51,6 +94,14 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [
           line(depth, `if (${conditionToJs(node.condition)}) {`),
           ...nodesToJs(node.body, depth + 1),
+          line(depth, "}"),
+        ];
+      case "ifElse":
+        return [
+          line(depth, `if (${conditionToJs(node.condition)}) {`),
+          ...nodesToJs(node.thenBody, depth + 1),
+          line(depth, "} else {"),
+          ...nodesToJs(node.elseBody, depth + 1),
           line(depth, "}"),
         ];
       case "aiIntent":

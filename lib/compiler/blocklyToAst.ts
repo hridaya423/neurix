@@ -176,11 +176,10 @@ function parseStack(startBlock: Blockly.Block | null, definitions: AiDefinitions
   return program;
 }
 
-export function blocklyToAst(workspace: Blockly.WorkspaceSvg) {
-  const topBlocks = workspace.getTopBlocks(false);
+function collectAiDefinitions(workspace: Blockly.WorkspaceSvg): AiDefinitions {
   const definitions = new Map<string, Blockly.Block | null>();
 
-  for (const block of topBlocks) {
+  for (const block of workspace.getTopBlocks(false)) {
     if (block.type === "ai_define") {
       definitions.set(
         normalizePrompt(String(block.getFieldValue("PROMPT") ?? "")),
@@ -188,6 +187,27 @@ export function blocklyToAst(workspace: Blockly.WorkspaceSvg) {
       );
     }
   }
+
+  return definitions;
+}
+
+export function blockStackToAst(workspace: Blockly.WorkspaceSvg, block: Blockly.Block): ScriptNode[] {
+  const definitions = collectAiDefinitions(workspace);
+
+  if (block.type === "event_start" || block.type === "ai_define") {
+    return parseStack(block.getNextBlock(), definitions);
+  }
+
+  if (block.outputConnection) {
+    return [{ type: "if", condition: parseCondition(block), body: [] }];
+  }
+
+  return parseStack(block, definitions);
+}
+
+export function blocklyToAst(workspace: Blockly.WorkspaceSvg) {
+  const topBlocks = workspace.getTopBlocks(false);
+  const definitions = collectAiDefinitions(workspace);
 
   const startBlock = topBlocks.find((block) => block.type === "event_start");
   return startBlock ? parseStack(startBlock.getNextBlock(), definitions) : [];

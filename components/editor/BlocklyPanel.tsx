@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Blockly from "blockly/core";
 import "blockly/blocks";
 import * as BlocklyEn from "blockly/msg/en";
-import { blocklyToAst } from "@/lib/compiler/blocklyToAst";
+import { blocklyToAst, blockStackToAst } from "@/lib/compiler/blocklyToAst";
 import type { ScriptNode } from "@/lib/compiler/types";
 import { insertAstUnderDefinition } from "@/lib/blockly/astToBlockly";
 
@@ -20,6 +20,18 @@ type BlocklyPanelProps = {
 type AiProcessResponse = {
   ast?: ScriptNode[];
   explanation?: string;
+  error?: string;
+};
+
+type AiExplainResponse = {
+  title?: string;
+  summary?: string;
+  steps?: string[];
+  error?: string;
+};
+
+type AiAskResponse = {
+  answer?: string;
   error?: string;
 };
 
@@ -543,20 +555,147 @@ function getSelectedAiDefinition(workspace: Blockly.WorkspaceSvg) {
   return selected;
 }
 
+async function readTextStream(response: Response, onChunk: (text: string) => void) {
+  if (!response.body) {
+    onChunk(await response.text());
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onChunk(decoder.decode(value, { stream: true }));
+  }
+}
+
 export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
+  const activeSpriteNameRef = useRef(activeSpriteName);
   const initialWorkspaceStateRef = useRef(workspaceState);
   const onWorkspaceChangeRef = useRef(onWorkspaceChange);
   const [selectedAiPrompt, setSelectedAiPrompt] = useState<string | null>(null);
   const [selectedAiBlockId, setSelectedAiBlockId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [explanation, setExplanation] = useState<AiExplainResponse | null>(null);
+  const [askBlockId, setAskBlockId] = useState<string | null>(null);
+  const [askQuestion, setAskQuestion] = useState("");
+  const [isAsking, setIsAsking] = useState(false);
+  const [askResponse, setAskResponse] = useState<AiAskResponse | null>(null);
 
   useEffect(() => {
     onWorkspaceChangeRef.current = onWorkspaceChange;
   }, [onWorkspaceChange]);
+
+  useEffect(() => {
+    activeSpriteNameRef.current = activeSpriteName;
+  }, [activeSpriteName]);
+
+  const explainBlock = useCallback(async (blockId: string) => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+
+    const block = workspace.getBlockById(blockId);
+    if (!block) return;
+
+    const selectedAst = blockStackToAst(workspace, block);
+    if (selectedAst.length === 0) {
+      setExplanation({ error: "This block does not have any connected logic to explain." });
+      return;
+    }
+
+    setIsExplaining(true);
+    setExplanation({ title: "Explaining blocks", summary: "" });
+
+    try {
+      const response = await fetch("/api/ai/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          spriteName: activeSpriteNameRef.current,
+          selectedAst,
+          fullAst: blocklyToAst(workspace),
+          stream: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json() as AiExplainResponse;
+        throw new Error(payload.error ?? "Could not explain these blocks.");
+      }
+
+      let streamedText = "";
+      await readTextStream(response, (text) => {
+        streamedText += text;
+        setExplanation({ title: "AI Explain", summary: streamedText });
+      });
+    } catch (error) {
+      setExplanation({ error: error instanceof Error ? error.message : "Could not explain these blocks." });
+    } finally {
+      setIsExplaining(false);
+    }
+  }, []);
+
+  const openAskAi = useCallback((blockId: string) => {
+    setAskBlockId(blockId);
+    setAskQuestion("");
+    setAskResponse(null);
+  }, []);
+
+  const askAi = async () => {
+    const workspace = workspaceRef.current;
+    if (!workspace || !askBlockId) return;
+
+    const block = workspace.getBlockById(askBlockId);
+    if (!block) {
+      setAskResponse({ error: "That block is no longer available." });
+      return;
+    }
+
+    const question = askQuestion.trim();
+    if (!question) {
+      setAskResponse({ error: "Ask a question first." });
+      return;
+    }
+
+    setIsAsking(true);
+    setAskResponse(null);
+
+    try {
+      const response = await fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          spriteName: activeSpriteNameRef.current,
+          question,
+          selectedAst: blockStackToAst(workspace, block),
+          fullAst: blocklyToAst(workspace),
+          stream: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json() as AiAskResponse;
+        throw new Error(payload.error ?? "Could not answer that.");
+      }
+
+      let streamedText = "";
+      await readTextStream(response, (text) => {
+        streamedText += text;
+        setAskResponse({ answer: streamedText });
+      });
+    } catch (error) {
+      setAskResponse({ error: error instanceof Error ? error.message : "Could not answer that." });
+    } finally {
+      setIsAsking(false);
+    }
+  };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -594,6 +733,29 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
     workspaceRef.current = workspace;
     loadWorkspace(workspace, initialWorkspaceStateRef.current);
 
+    const attachExplainContextMenus = () => {
+      const blocks = workspace.getAllBlocks(false) as Blockly.BlockSvg[];
+
+      for (const block of blocks) {
+        block.customContextMenu = (options) => {
+          options.unshift({
+            text: "Explain with AI",
+            enabled: true,
+            callback: () => {
+              void explainBlock(block.id);
+            },
+          });
+          options.unshift({
+            text: "Ask AI",
+            enabled: true,
+            callback: () => {
+              openAskAi(block.id);
+            },
+          });
+        };
+      }
+    };
+
     const updateSelectedAiPrompt = () => {
       const definitionBlock = getSelectedAiDefinition(workspace);
       setSelectedAiPrompt(definitionBlock ? String(definitionBlock.getFieldValue("PROMPT") ?? "") : null);
@@ -610,10 +772,12 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
 
     workspace.addChangeListener((event) => {
       updateSelectedAiPrompt();
+      attachExplainContextMenus();
       if (event.isUiEvent) return;
       emitWorkspaceChange();
     });
 
+    attachExplainContextMenus();
     emitWorkspaceChange();
 
     const resizeObserver = new ResizeObserver(() => {
@@ -626,7 +790,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
       workspace.dispose();
       workspaceRef.current = null;
     };
-  }, []);
+  }, [explainBlock, openAskAi]);
 
   const generateAiDefinition = async () => {
     const workspace = workspaceRef.current;
@@ -675,19 +839,84 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
 
   return (
     <div className="neurix-blockly">
-      <div className="ai-generate-panel" onMouseDown={(event) => event.preventDefault()}>
-        <button
-          className="btn btn-primary"
-          disabled={!selectedAiBlockId || isGenerating}
-          onClick={generateAiDefinition}
-          type="button"
-        >
-          {isGenerating ? "Generating..." : "Generate with AI"}
-        </button>
-        <span>{selectedAiPrompt ? `Selected: ${selectedAiPrompt}` : "Select an AI definition block"}</span>
-        {aiMessage && <span>{aiMessage}</span>}
-      </div>
+      {selectedAiBlockId && (
+        <div className="ai-generate-panel" onMouseDown={(event) => event.preventDefault()}>
+          <button
+            className="btn btn-primary"
+            disabled={isGenerating}
+            onClick={generateAiDefinition}
+            type="button"
+          >
+            {isGenerating ? "Generating..." : "Generate with AI"}
+          </button>
+          <span>{selectedAiPrompt ? selectedAiPrompt : "AI definition"}</span>
+          {aiMessage && <span>{aiMessage}</span>}
+        </div>
+      )}
       <div className="blockly-host" ref={hostRef} />
+      {(explanation || isExplaining) && (
+        <div className="ai-explain-card">
+          <div className="ai-explain-card-header">
+            <div>
+              <p>AI Explain</p>
+              <h3>{explanation?.title ?? "Explaining blocks"}</h3>
+            </div>
+            <button className="ai-explain-close" onClick={() => setExplanation(null)} type="button">
+              Close
+            </button>
+          </div>
+          {explanation?.error ? (
+            <p className="ai-explain-error">{explanation.error}</p>
+          ) : (
+            <>
+              <p className="ai-explain-summary">
+                {explanation?.summary ?? "Reading this block stack..."}
+              </p>
+              {explanation?.steps && explanation.steps.length > 0 && (
+                <div className="ai-explain-section">
+                  <span>What happens</span>
+                  <ol>
+                    {explanation.steps.map((step, index) => (
+                      <li key={`${step}-${index}`}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {askBlockId && (
+        <div className="ai-ask-card">
+          <div className="ai-ask-card-header">
+            <div>
+              <p>Ask AI</p>
+              <h3>Question about these blocks</h3>
+            </div>
+            <button className="ai-explain-close" onClick={() => setAskBlockId(null)} type="button">
+              Close
+            </button>
+          </div>
+          <textarea
+            className="ai-ask-input"
+            value={askQuestion}
+            onChange={(event) => setAskQuestion(event.target.value)}
+            placeholder="Why does this move? How can I make it faster?"
+            rows={3}
+          />
+          <div className="ai-ask-actions">
+            <button className="btn btn-primary" disabled={isAsking} onClick={askAi} type="button">
+              {isAsking ? "Asking..." : "Ask"}
+            </button>
+          </div>
+          {askResponse?.error && <p className="ai-explain-error">{askResponse.error}</p>}
+          {askResponse?.answer && (
+            <div className="ai-ask-answer">
+              <p>{askResponse.answer}</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,18 +1,26 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Blockly from "blockly/core";
 import "blockly/blocks";
 import * as BlocklyEn from "blockly/msg/en";
 import { blocklyToAst } from "@/lib/compiler/blocklyToAst";
 import type { ScriptNode } from "@/lib/compiler/types";
+import { insertAstUnderDefinition } from "@/lib/blockly/astToBlockly";
 
 let customBlocksRegistered = false;
 
 type BlocklyPanelProps = {
   activeSpriteId: string;
+  activeSpriteName: string;
   workspaceState: string | null;
   onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptNode[]) => void;
+};
+
+type AiProcessResponse = {
+  ast?: ScriptNode[];
+  explanation?: string;
+  error?: string;
 };
 
 const CUSTOM_BLOCKS = [
@@ -528,12 +536,23 @@ function registerCustomBlocks() {
   customBlocksRegistered = true;
 }
 
-export function BlocklyPanel({ activeSpriteId, workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
+function getSelectedAiDefinition(workspace: Blockly.WorkspaceSvg) {
+  const selected = Blockly.common.getSelected();
+  if (!(selected instanceof Blockly.Block)) return null;
+  if (selected.workspace !== workspace || selected.type !== "ai_define") return null;
+  return selected;
+}
+
+export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
   const initialWorkspaceStateRef = useRef(workspaceState);
   const onWorkspaceChangeRef = useRef(onWorkspaceChange);
+  const [selectedAiPrompt, setSelectedAiPrompt] = useState<string | null>(null);
+  const [selectedAiBlockId, setSelectedAiBlockId] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
 
   useEffect(() => {
     onWorkspaceChangeRef.current = onWorkspaceChange;
@@ -575,6 +594,12 @@ export function BlocklyPanel({ activeSpriteId, workspaceState, onWorkspaceChange
     workspaceRef.current = workspace;
     loadWorkspace(workspace, initialWorkspaceStateRef.current);
 
+    const updateSelectedAiPrompt = () => {
+      const definitionBlock = getSelectedAiDefinition(workspace);
+      setSelectedAiPrompt(definitionBlock ? String(definitionBlock.getFieldValue("PROMPT") ?? "") : null);
+      setSelectedAiBlockId(definitionBlock?.id ?? null);
+    };
+
     const emitWorkspaceChange = () => {
       onWorkspaceChangeRef.current(
         initialSpriteIdRef.current,
@@ -584,6 +609,7 @@ export function BlocklyPanel({ activeSpriteId, workspaceState, onWorkspaceChange
     };
 
     workspace.addChangeListener((event) => {
+      updateSelectedAiPrompt();
       if (event.isUiEvent) return;
       emitWorkspaceChange();
     });
@@ -602,8 +628,65 @@ export function BlocklyPanel({ activeSpriteId, workspaceState, onWorkspaceChange
     };
   }, []);
 
+  const generateAiDefinition = async () => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+
+    const definitionBlock = selectedAiBlockId ? workspace.getBlockById(selectedAiBlockId) : null;
+    if (!definitionBlock || definitionBlock.type !== "ai_define") {
+      setAiMessage("Select an AI definition block first.");
+      return;
+    }
+
+    const prompt = String(definitionBlock.getFieldValue("PROMPT") ?? "").trim();
+    if (!prompt) {
+      setAiMessage("Name the AI block first.");
+      return;
+    }
+
+    setIsGenerating(true);
+    setAiMessage(null);
+
+    try {
+      const response = await fetch("/api/ai/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, spriteName: activeSpriteName }),
+      });
+      const payload = await response.json() as AiProcessResponse;
+
+      if (!response.ok || !payload.ast) {
+        throw new Error(payload.error ?? "Could not generate blocks.");
+      }
+
+      insertAstUnderDefinition(definitionBlock, payload.ast);
+      onWorkspaceChangeRef.current(
+        initialSpriteIdRef.current,
+        saveWorkspace(workspace),
+        blocklyToAst(workspace),
+      );
+      setAiMessage(payload.explanation ?? "Inserted generated blocks.");
+    } catch (error) {
+      setAiMessage(error instanceof Error ? error.message : "Could not generate blocks.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <div className="neurix-blockly">
+      <div className="ai-generate-panel" onMouseDown={(event) => event.preventDefault()}>
+        <button
+          className="btn btn-primary"
+          disabled={!selectedAiBlockId || isGenerating}
+          onClick={generateAiDefinition}
+          type="button"
+        >
+          {isGenerating ? "Generating..." : "Generate with AI"}
+        </button>
+        <span>{selectedAiPrompt ? `Selected: ${selectedAiPrompt}` : "Select an AI definition block"}</span>
+        {aiMessage && <span>{aiMessage}</span>}
+      </div>
       <div className="blockly-host" ref={hostRef} />
     </div>
   );

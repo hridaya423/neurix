@@ -379,6 +379,7 @@ export default function Home() {
                 <BlocklyPanel
                   key={activeSprite.id}
                   activeSpriteId={activeSprite.id}
+                  activeSpriteName={activeSprite.name}
                   workspaceState={activeSprite.workspaceState}
                   onWorkspaceChange={handleWorkspaceChange}
                 />

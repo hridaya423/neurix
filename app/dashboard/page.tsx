@@ -153,7 +153,7 @@ export default function DashboardPage() {
             <div className="dashboard-empty-shape" />
           </div>
           <h2>Create your first project</h2>
-          <p>Build a sprite, define AI blocks, and bring it to life.</p>
+          <p>Build a sprite, define custom blocks, and bring it to life.</p>
           <button className="btn btn-primary" type="button" onClick={createNewProject}>
             <Plus size={16} strokeWidth={2.5} />
             Start blank

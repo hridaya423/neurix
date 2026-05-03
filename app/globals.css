@@ -1694,6 +1694,23 @@ body {
   fill-opacity: 1 !important;
 }
 
+.neurix-blockly .blocklyFlyoutButton .blocklyText {
+  fill: #1d1d1f !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.neurix-blockly .blocklyFlyoutButton .blocklyFlyoutButtonBackground {
+  fill: rgba(255, 140, 66, 0.12) !important;
+  stroke: rgba(255, 140, 66, 0.24) !important;
+  rx: 8px !important;
+  ry: 8px !important;
+}
+
+.neurix-blockly .blocklyFlyoutButton:hover .blocklyFlyoutButtonBackground {
+  fill: rgba(255, 140, 66, 0.18) !important;
+}
+
 .neurix-blockly .blocklyScrollbarVertical,
 .neurix-blockly .blocklyScrollbarHorizontal,
 .neurix-blockly .blocklyFlyoutScrollbar {

@@ -15,6 +15,7 @@ type SavedSprite = {
   visible: boolean;
   workspaceState: string | null;
   program: unknown[];
+  cloneProgram?: unknown[];
 };
 
 const stage = {
@@ -42,6 +43,7 @@ const sprite = v.object({
   visible: v.boolean(),
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
+  cloneProgram: v.optional(v.array(v.any())),
 });
 
 const documentArg = v.object({

@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlocklyPanel } from "./BlocklyPanel";
 import { astToJs } from "@/lib/compiler/astToJs";
-import type { ScriptNode } from "@/lib/compiler/types";
+import type { ScriptNode, ScriptProgram } from "@/lib/compiler/types";
 import { runScript } from "@/lib/runtime/interpreter";
 import {
   Play,
@@ -29,8 +29,11 @@ export type SavedSprite = {
   tone: string;
   visible: boolean;
   workspaceState: string | null;
-  program: ScriptNode[];
+  program: ScriptProgram;
+  cloneProgram?: ScriptProgram;
   sayText?: string;
+  isClone?: boolean;
+  sourceId?: string;
 };
 
 export type ProjectDocument = {
@@ -56,10 +59,27 @@ type NeurixEditorProps = {
 const tones = ["#56CBF9", "#7FBEEB", "#AFBED1", "#EAC5D8", "#DBD8F0"];
 
 const initialSprites: SavedSprite[] = [
-  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, tone: "#56CBF9", visible: true, workspaceState: null, program: [] },
-  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] },
-  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, tone: "#AFBED1", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, tone: "#56CBF9", visible: true, workspaceState: null, program: [], cloneProgram: [] },
+  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, tone: "#7FBEEB", visible: true, workspaceState: null, program: [], cloneProgram: [] },
+  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, tone: "#AFBED1", visible: true, workspaceState: null, program: [], cloneProgram: [] },
 ];
+
+function normalizeProgram(program: unknown): ScriptProgram {
+  if (!Array.isArray(program) || program.length === 0) return [];
+  return Array.isArray(program[0]) ? program as ScriptProgram : [program as ScriptNode[]];
+}
+
+function flattenProgram(program: ScriptProgram) {
+  return program.flat();
+}
+
+function normalizeSprite(sprite: SavedSprite): SavedSprite {
+  return {
+    ...sprite,
+    program: normalizeProgram(sprite.program),
+    cloneProgram: normalizeProgram(sprite.cloneProgram),
+  };
+}
 
 const stageRange = { minX: -240, maxX: 240, minY: -180, maxY: 180 };
 
@@ -118,12 +138,20 @@ export default function NeurixEditor({
   onSave,
 }: NeurixEditorProps) {
   const [projectName, setProjectName] = useState(initialName);
-  const [sprites, setSprites] = useState<SavedSprite[]>(initialDocument.sprites.length > 0 ? initialDocument.sprites : initialSprites);
+  const [sprites, setSprites] = useState<SavedSprite[]>(() =>
+    (initialDocument.sprites.length > 0 ? initialDocument.sprites : initialSprites).map(normalizeSprite),
+  );
   const [activeId, setActiveId] = useState<string>((initialDocument.sprites[0] ?? initialSprites[0]).id);
   const [isRunning, setIsRunning] = useState(false);
   const runIdRef = useRef(0);
+  const deletedCloneIdsRef = useRef(new Set<string>());
   const pressedKeysRef = useRef(new Set<string>());
+  const lastKeyRef = useRef("");
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const mouseRef = useRef({ x: 0, y: 0, down: false });
+  const timerStartRef = useRef(0);
   const spritesRef = useRef(sprites);
+  const runProgramRef = useRef<((spriteId: string, program: ScriptProgram, runId: number) => Promise<void>) | null>(null);
 
   const activeSprite = useMemo(
     () => sprites.find((s) => s.id === activeId) ?? sprites[0],
@@ -131,13 +159,13 @@ export default function NeurixEditor({
   );
 
   const activeGeneratedCode = useMemo(() => {
-    return astToJs(activeSprite?.program ?? []);
+    return astToJs(flattenProgram(activeSprite?.program ?? []));
   }, [activeSprite?.program]);
 
   const projectDocument = useMemo<ProjectDocument>(() => ({
     version: 1,
     stage: { ...stageRange, background: initialDocument.stage.background },
-    sprites: sprites.map((sprite) => ({
+    sprites: sprites.filter((sprite) => !sprite.isClone).map((sprite) => ({
       id: sprite.id,
       name: sprite.name,
       x: sprite.x,
@@ -148,6 +176,7 @@ export default function NeurixEditor({
       visible: sprite.visible,
       workspaceState: sprite.workspaceState,
       program: sprite.program,
+      cloneProgram: sprite.cloneProgram ?? [],
     })),
   }), [initialDocument.stage.background, sprites]);
 
@@ -156,23 +185,33 @@ export default function NeurixEditor({
   }, [sprites]);
 
   useEffect(() => {
+    timerStartRef.current = Date.now();
+  }, []);
+
+  useEffect(() => {
     onChange?.(projectName, projectDocument);
   }, [onChange, projectDocument, projectName]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       pressedKeysRef.current.add(event.key);
+      lastKeyRef.current = event.key;
     };
     const handleKeyUp = (event: KeyboardEvent) => {
       pressedKeysRef.current.delete(event.key);
     };
+    const handlePointerUp = () => {
+      mouseRef.current.down = false;
+    };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("pointerup", handlePointerUp);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("pointerup", handlePointerUp);
     };
   }, []);
 
@@ -200,11 +239,20 @@ export default function NeurixEditor({
     );
   }, []);
 
+  const updateMousePosition = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const ratioX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+    const ratioY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+    mouseRef.current.x = Math.round(stageRange.minX + ratioX * (stageRange.maxX - stageRange.minX));
+    mouseRef.current.y = Math.round(stageRange.maxY - ratioY * (stageRange.maxY - stageRange.minY));
+  };
+
   const handleWorkspaceChange = useCallback(
-    (spriteId: string, workspaceState: string, program: ScriptNode[]) => {
+    (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram) => {
       setSprites((curr) =>
         curr.map((sprite) =>
-          sprite.id === spriteId ? { ...sprite, workspaceState, program } : sprite,
+          sprite.id === spriteId ? { ...sprite, workspaceState, program, cloneProgram } : sprite,
         ),
       );
     },
@@ -254,14 +302,25 @@ export default function NeurixEditor({
   const runProgram = useCallback(
     async (spriteId: string, program: ScriptNode[], runId: number) => {
       await runScript(program, {
-        isCancelled: () => runIdRef.current !== runId,
+        isCancelled: () => runIdRef.current !== runId || deletedCloneIdsRef.current.has(spriteId),
         wait,
         nextFrame: () => wait(16),
-        keyDown: (key) => pressedKeysRef.current.has(key),
+        keyDown: (key) => pressedKeysRef.current.has(key) || (key === "Space" && pressedKeysRef.current.has(" ")),
+        anyKeyDown: () => pressedKeysRef.current.size > 0,
+        lastKey: () => lastKeyRef.current,
+        mouseDown: () => mouseRef.current.down,
+        getMouseX: () => mouseRef.current.x,
+        getMouseY: () => mouseRef.current.y,
+        getTimerSeconds: () => (Date.now() - timerStartRef.current) / 1000,
+        getX: () => spritesRef.current.find((item) => item.id === spriteId)?.x ?? 0,
+        getY: () => spritesRef.current.find((item) => item.id === spriteId)?.y ?? 0,
+        getDirection: () => spritesRef.current.find((item) => item.id === spriteId)?.direction ?? 90,
+        getSize: () => spritesRef.current.find((item) => item.id === spriteId)?.size ?? 100,
         touchingEdge: () => {
           const sprite = spritesRef.current.find((item) => item.id === spriteId);
           if (!sprite) return false;
-          return sprite.x <= stageRange.minX || sprite.x >= stageRange.maxX || sprite.y <= stageRange.minY || sprite.y >= stageRange.maxY;
+          const padding = clamp(sprite.size * 0.12, 4, 36);
+          return sprite.x <= stageRange.minX + padding || sprite.x >= stageRange.maxX - padding || sprite.y <= stageRange.minY + padding || sprite.y >= stageRange.maxY - padding;
         },
         move: (steps) => {
           setSprites((curr) =>
@@ -322,8 +381,13 @@ export default function NeurixEditor({
           setSprites((curr) =>
             curr.map((sprite) => {
               if (sprite.id !== spriteId) return sprite;
-              const hitX = sprite.x <= stageRange.minX || sprite.x >= stageRange.maxX;
-              const hitY = sprite.y <= stageRange.minY || sprite.y >= stageRange.maxY;
+              const padding = clamp(sprite.size * 0.12, 4, 36);
+              const minX = stageRange.minX + padding;
+              const maxX = stageRange.maxX - padding;
+              const minY = stageRange.minY + padding;
+              const maxY = stageRange.maxY - padding;
+              const hitX = sprite.x <= minX || sprite.x >= maxX;
+              const hitY = sprite.y <= minY || sprite.y >= maxY;
               if (!hitX && !hitY) return sprite;
 
               let nextDirection = sprite.direction;
@@ -331,7 +395,12 @@ export default function NeurixEditor({
               else if (hitX) nextDirection = 360 - sprite.direction;
               else nextDirection = 180 - sprite.direction;
 
-              return { ...sprite, direction: normalizeDirection(nextDirection) };
+              return {
+                ...sprite,
+                x: clamp(sprite.x, minX, maxX),
+                y: clamp(sprite.y, minY, maxY),
+                direction: normalizeDirection(nextDirection),
+              };
             }),
           );
         },
@@ -350,6 +419,51 @@ export default function NeurixEditor({
         setSize: (size) => {
           updateSprite(spriteId, { size: clamp(size, 1, 300) });
         },
+        setTone: (tone) => {
+          updateSprite(spriteId, { tone });
+        },
+        changeTone: (amount) => {
+          setSprites((curr) =>
+            curr.map((sprite) => {
+              if (sprite.id !== spriteId) return sprite;
+              const currentIndex = Math.max(0, tones.indexOf(sprite.tone));
+              const nextIndex = ((currentIndex + Math.round(amount)) % tones.length + tones.length) % tones.length;
+              return { ...sprite, tone: tones[nextIndex] };
+            }),
+          );
+        },
+        createClone: () => {
+          const source = spritesRef.current.find((item) => item.id === spriteId);
+          if (!source) return;
+          const baseId = source.sourceId ?? source.id;
+          const base = spritesRef.current.find((item) => item.id === baseId) ?? source;
+          const cloneCount = spritesRef.current.filter((item) => item.isClone).length;
+          if (cloneCount >= 50) return;
+          const cloneId = `clone-${baseId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const clone: SavedSprite = {
+            ...source,
+            id: cloneId,
+            name: `${base.name} clone`,
+            sourceId: baseId,
+            isClone: true,
+            workspaceState: base.workspaceState,
+            program: base.program,
+            cloneProgram: base.cloneProgram ?? [],
+            sayText: undefined,
+          };
+          setSprites((curr) => [...curr, clone]);
+          spritesRef.current = [...spritesRef.current, clone];
+          if ((base.cloneProgram ?? []).length > 0) {
+            void runProgramRef.current?.(cloneId, base.cloneProgram ?? [], runId);
+          }
+        },
+        deleteClone: () => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite?.isClone) return;
+          deletedCloneIdsRef.current.add(spriteId);
+          spritesRef.current = spritesRef.current.filter((item) => item.id !== spriteId);
+          setSprites((curr) => curr.filter((item) => item.id !== spriteId));
+        },
         show: () => {
           updateSprite(spriteId, { visible: true });
         },
@@ -361,13 +475,28 @@ export default function NeurixEditor({
     [updateSprite],
   );
 
+  const runProgramStacks = useCallback(
+    async (spriteId: string, program: ScriptProgram, runId: number) => {
+      await Promise.all(program.map((stack) => runProgram(spriteId, stack, runId)));
+    },
+    [runProgram],
+  );
+
+  useEffect(() => {
+    runProgramRef.current = runProgramStacks;
+  }, [runProgramStacks]);
+
   const runAllSprites = async () => {
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
+    deletedCloneIdsRef.current.clear();
+    timerStartRef.current = Date.now();
     setIsRunning(true);
-    setSprites((curr) => curr.map((sprite) => ({ ...sprite, sayText: undefined })));
+    const runnableSprites = sprites.filter((sprite) => !sprite.isClone);
+    setSprites(runnableSprites.map((sprite) => ({ ...sprite, sayText: undefined })));
+    spritesRef.current = runnableSprites.map((sprite) => ({ ...sprite, sayText: undefined }));
 
-    const jobs = sprites.map((sprite) => runProgram(sprite.id, sprite.program, runId));
+    const jobs = runnableSprites.map((sprite) => runProgramStacks(sprite.id, sprite.program, runId));
     await Promise.all(jobs);
 
     if (runIdRef.current === runId) {
@@ -381,8 +510,9 @@ export default function NeurixEditor({
 
   const stopAllSprites = () => {
     runIdRef.current += 1;
+    deletedCloneIdsRef.current.clear();
     setIsRunning(false);
-    setSprites((curr) => curr.map((sprite) => ({ ...sprite, sayText: undefined })));
+    setSprites((curr) => curr.filter((sprite) => !sprite.isClone).map((sprite) => ({ ...sprite, sayText: undefined })));
   };
 
   const resetSprites = () => {
@@ -483,7 +613,21 @@ export default function NeurixEditor({
                 <RotateCcw size={13} strokeWidth={2} />
               </button>
             </div>
-            <div className="stage-viewport">
+            <div
+              className="stage-viewport"
+              ref={stageRef}
+              onPointerMove={updateMousePosition}
+              onPointerDown={(event) => {
+                updateMousePosition(event);
+                mouseRef.current.down = true;
+              }}
+              onPointerUp={() => {
+                mouseRef.current.down = false;
+              }}
+              onPointerLeave={() => {
+                mouseRef.current.down = false;
+              }}
+            >
               <div className="stage-grid-bg" />
               {sprites.map((sprite) => sprite.visible ? (
                 <div
@@ -530,7 +674,7 @@ export default function NeurixEditor({
               </button>
             </div>
             <div className="sprite-strip">
-              {sprites.map((sprite) => (
+              {sprites.filter((sprite) => !sprite.isClone).map((sprite) => (
                 <button
                   key={sprite.id}
                   className={`sprite-item ${sprite.id === activeId ? "sprite-item-active" : ""}`}

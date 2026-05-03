@@ -39,7 +39,7 @@ export async function generateProcessAst(prompt: string, spriteName: string) {
         },
         {
           role: "user",
-          content: `Sprite: ${spriteName}\nAI block idea: ${prompt}\nGenerate the blocks that should go under this AI definition.`,
+          content: `Sprite: ${spriteName}\nCustom block idea: ${prompt}\nGenerate the blocks that should go under this custom block definition.`,
         },
       ],
       stream: false,

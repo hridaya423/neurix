@@ -184,7 +184,7 @@ export function validateGeneratedProcess(content: string): GeneratedProcess {
   }
 
   return {
-    name: stringValue(parsed.name, "AI block"),
+    name: stringValue(parsed.name, "custom block"),
     explanation: stringValue(parsed.explanation, "Generated editable blocks."),
     ast,
   };

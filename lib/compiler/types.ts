@@ -1,37 +1,76 @@
-export type KeyName = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Space";
+export type KeyName = string;
+
+export type ScriptValue =
+  | number
+  | string
+  | { type: "number"; value: number }
+  | { type: "string"; value: string }
+  | { type: "variable"; name: string }
+  | { type: "spriteProperty"; property: "x" | "y" | "direction" | "size" }
+  | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "distanceToCenter" | "lastKey" }
+  | { type: "random"; from: ScriptValue; to: ScriptValue }
+  | { type: "arithmetic"; operator: "+" | "-" | "*" | "/" | "%" | "^"; left: ScriptValue; right: ScriptValue }
+  | { type: "round"; value: ScriptValue }
+  | { type: "math"; operator: "abs" | "floor" | "ceiling" | "sqrt" | "sin" | "cos" | "tan"; value: ScriptValue }
+  | { type: "join"; values: ScriptValue[] }
+  | { type: "letterOf"; index: ScriptValue; text: ScriptValue }
+  | { type: "lengthOf"; text: ScriptValue };
 
 export type ScriptCondition =
   | { type: "keyPressed"; key: KeyName }
   | { type: "touchingEdge" }
+  | { type: "mouseDown" }
+  | { type: "anyKeyPressed" }
+  | { type: "boolean"; value: boolean }
   | { type: "not"; condition: ScriptCondition }
   | { type: "and"; left: ScriptCondition; right: ScriptCondition }
   | { type: "or"; left: ScriptCondition; right: ScriptCondition }
-  | { type: "compare"; left: number; operator: "=" | "<" | ">"; right: number };
+  | { type: "compare"; left: ScriptValue; operator: "=" | "<" | ">" | "≤" | "≥" | "≠"; right: ScriptValue }
+  | { type: "contains"; text: ScriptValue; search: ScriptValue };
 
 export type ScriptNode =
-  | { type: "move"; steps: number }
-  | { type: "turn"; degrees: number }
-  | { type: "setPosition"; x: number; y: number }
+  | { type: "move"; steps: ScriptValue }
+  | { type: "turn"; degrees: ScriptValue }
+  | { type: "setPosition"; x: ScriptValue; y: ScriptValue }
   | { type: "goHome" }
-  | { type: "changeX"; dx: number }
-  | { type: "changeY"; dy: number }
-  | { type: "setX"; x: number }
-  | { type: "setY"; y: number }
-  | { type: "setDirection"; direction: number }
-  | { type: "pointInDirection"; direction: number }
+  | { type: "changeX"; dx: ScriptValue }
+  | { type: "changeY"; dy: ScriptValue }
+  | { type: "setX"; x: ScriptValue }
+  | { type: "setY"; y: ScriptValue }
+  | { type: "setDirection"; direction: ScriptValue }
+  | { type: "pointInDirection"; direction: ScriptValue }
+  | { type: "pointTowardMouse" }
+  | { type: "pointTowardCenter" }
   | { type: "ifOnEdgeBounce" }
-  | { type: "say"; text: string }
-  | { type: "sayForSeconds"; text: string; seconds: number }
-  | { type: "think"; text: string }
-  | { type: "thinkForSeconds"; text: string; seconds: number }
+  | { type: "goToMouse" }
+  | { type: "goToRandom" }
+  | { type: "glideToPosition"; seconds: ScriptValue; x: ScriptValue; y: ScriptValue }
+  | { type: "glideToMouse"; seconds: ScriptValue }
+  | { type: "say"; text: ScriptValue }
+  | { type: "sayForSeconds"; text: ScriptValue; seconds: ScriptValue }
+  | { type: "think"; text: ScriptValue }
+  | { type: "thinkForSeconds"; text: ScriptValue; seconds: ScriptValue }
   | { type: "clearSpeech" }
-  | { type: "changeSize"; amount: number }
-  | { type: "setSize"; size: number }
+  | { type: "changeSize"; amount: ScriptValue }
+  | { type: "setSize"; size: ScriptValue }
   | { type: "show" }
   | { type: "hide" }
-  | { type: "wait"; seconds: number }
-  | { type: "repeat"; times: number; body: ScriptNode[] }
+  | { type: "setTone"; tone: string }
+  | { type: "changeTone"; amount: ScriptValue }
+  | { type: "setVariable"; name: string; value: ScriptValue }
+  | { type: "changeVariable"; name: string; amount: ScriptValue }
+  | { type: "createClone" }
+  | { type: "deleteClone" }
+  | { type: "wait"; seconds: ScriptValue }
+  | { type: "repeat"; times: ScriptValue; body: ScriptNode[] }
+  | { type: "repeatUntil"; condition: ScriptCondition; body: ScriptNode[] }
+  | { type: "waitUntil"; condition: ScriptCondition }
   | { type: "forever"; body: ScriptNode[] }
   | { type: "if"; condition: ScriptCondition; body: ScriptNode[] }
   | { type: "ifElse"; condition: ScriptCondition; thenBody: ScriptNode[]; elseBody: ScriptNode[] }
+  | { type: "customCall"; name: string }
   | { type: "aiIntent"; prompt: string };
+
+export type ScriptStack = ScriptNode[];
+
+export type ScriptProgram = ScriptStack[];

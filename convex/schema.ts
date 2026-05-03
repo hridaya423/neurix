@@ -12,6 +12,7 @@ const sprite = v.object({
   visible: v.boolean(),
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
+  cloneProgram: v.optional(v.array(v.any())),
 });
 
 export default defineSchema({

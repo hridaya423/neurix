@@ -1,0 +1,299 @@
+import { v } from "convex/values";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+
+type DbCtx = QueryCtx | MutationCtx;
+
+type SavedSprite = {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  size: number;
+  direction: number;
+  tone: string;
+  visible: boolean;
+  workspaceState: string | null;
+  program: unknown[];
+};
+
+const stage = {
+  minX: -240,
+  maxX: 240,
+  minY: -180,
+  maxY: 180,
+  background: null,
+};
+
+const initialSprites: SavedSprite[] = [
+  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, tone: "#56CBF9", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, tone: "#AFBED1", visible: true, workspaceState: null, program: [] },
+];
+
+const sprite = v.object({
+  id: v.string(),
+  name: v.string(),
+  x: v.number(),
+  y: v.number(),
+  size: v.number(),
+  direction: v.number(),
+  tone: v.string(),
+  visible: v.boolean(),
+  workspaceState: v.union(v.string(), v.null()),
+  program: v.array(v.any()),
+});
+
+const documentArg = v.object({
+  version: v.number(),
+  stage: v.object({
+    minX: v.number(),
+    maxX: v.number(),
+    minY: v.number(),
+    maxY: v.number(),
+    background: v.union(v.string(), v.null()),
+  }),
+  sprites: v.array(sprite),
+});
+
+async function requireIdentity(ctx: DbCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+
+  if (!identity) {
+    throw new Error("Not authenticated.");
+  }
+
+  return identity;
+}
+
+async function requireProject(ctx: DbCtx, projectId: Id<"projects">) {
+  const identity = await requireIdentity(ctx);
+  const project = await ctx.db.get(projectId);
+
+  if (!project || project.isDeleted || project.ownerTokenIdentifier !== identity.tokenIdentifier) {
+    throw new Error("Project not found.");
+  }
+
+  return { identity, project };
+}
+
+async function getDocument(ctx: DbCtx, projectId: Id<"projects">) {
+  return ctx.db
+    .query("projectDocuments")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .unique();
+}
+
+async function getProjectSprites(ctx: DbCtx, projectId: Id<"projects">) {
+  const rows = await ctx.db
+    .query("projectSprites")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .take(200);
+
+  return rows.sort((a, b) => a.order - b.order).map((row) => row.sprite);
+}
+
+async function replaceProjectSprites(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  sprites: SavedSprite[],
+  updatedAt: number,
+) {
+  const existing = await ctx.db
+    .query("projectSprites")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .take(500);
+  const incomingKeys = new Set(sprites.map((item) => item.id));
+
+  for (const row of existing) {
+    if (!incomingKeys.has(row.spriteKey)) {
+      await ctx.db.delete(row._id);
+    }
+  }
+
+  for (const [order, item] of sprites.entries()) {
+    const existingSprite = await ctx.db
+      .query("projectSprites")
+      .withIndex("by_projectId_and_spriteKey", (q) => q.eq("projectId", projectId).eq("spriteKey", item.id))
+      .unique();
+
+    if (existingSprite) {
+      await ctx.db.patch(existingSprite._id, { sprite: item, order, updatedAt });
+    } else {
+      await ctx.db.insert("projectSprites", {
+        projectId,
+        spriteKey: item.id,
+        sprite: item,
+        order,
+        updatedAt,
+      });
+    }
+  }
+}
+
+export const listProjects = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await requireIdentity(ctx);
+    return await ctx.db
+      .query("projects")
+      .withIndex("by_ownerTokenIdentifier_and_isDeleted_and_updatedAt", (q) =>
+        q.eq("ownerTokenIdentifier", identity.tokenIdentifier).eq("isDeleted", false),
+      )
+      .order("desc")
+      .take(100);
+  },
+});
+
+export const getProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const { project } = await requireProject(ctx, args.projectId);
+    const document = await getDocument(ctx, args.projectId);
+
+    if (!document) {
+      throw new Error("Project document not found.");
+    }
+
+    return {
+      project,
+      document: {
+        ...document,
+        sprites: await getProjectSprites(ctx, args.projectId),
+      },
+    };
+  },
+});
+
+export const createProject = mutation({
+  args: { name: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const now = Date.now();
+    const name = args.name?.trim() || "Untitled Project";
+
+    const projectId = await ctx.db.insert("projects", {
+      ownerTokenIdentifier: identity.tokenIdentifier,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      lastOpenedAt: now,
+      thumbnailTone: "#56CBF9",
+      spriteCount: initialSprites.length,
+      isDeleted: false,
+    });
+
+    await ctx.db.insert("projectDocuments", {
+      projectId,
+      version: 1,
+      stage,
+      updatedAt: now,
+    });
+
+    await replaceProjectSprites(ctx, projectId, initialSprites, now);
+
+    return projectId;
+  },
+});
+
+export const saveProject = mutation({
+  args: {
+    projectId: v.id("projects"),
+    name: v.string(),
+    document: documentArg,
+  },
+  handler: async (ctx, args) => {
+    await requireProject(ctx, args.projectId);
+    const now = Date.now();
+    const document = await getDocument(ctx, args.projectId);
+
+    if (!document) {
+      await ctx.db.insert("projectDocuments", {
+        projectId: args.projectId,
+        version: args.document.version,
+        stage: args.document.stage,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.patch(document._id, {
+        version: args.document.version,
+        stage: args.document.stage,
+        updatedAt: now,
+      });
+    }
+
+    await replaceProjectSprites(ctx, args.projectId, args.document.sprites, now);
+
+    await ctx.db.patch(args.projectId, {
+      name: args.name.trim() || "Untitled Project",
+      updatedAt: now,
+      lastOpenedAt: now,
+      spriteCount: args.document.sprites.length,
+      thumbnailTone: args.document.sprites[0]?.tone ?? "#56CBF9",
+    });
+  },
+});
+
+export const touchProject = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProject(ctx, args.projectId);
+    await ctx.db.patch(args.projectId, { lastOpenedAt: Date.now() });
+  },
+});
+
+export const softDeleteProject = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProject(ctx, args.projectId);
+    await ctx.db.patch(args.projectId, { isDeleted: true, updatedAt: Date.now() });
+  },
+});
+
+export const renameProject = mutation({
+  args: { projectId: v.id("projects"), name: v.string() },
+  handler: async (ctx, args) => {
+    await requireProject(ctx, args.projectId);
+    await ctx.db.patch(args.projectId, {
+      name: args.name.trim() || "Untitled Project",
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const duplicateProject = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const { identity, project } = await requireProject(ctx, args.projectId);
+    const document = await getDocument(ctx, args.projectId);
+
+    if (!document) {
+      throw new Error("Project document not found.");
+    }
+
+    const sprites = await getProjectSprites(ctx, args.projectId);
+
+    const now = Date.now();
+    const newProjectId = await ctx.db.insert("projects", {
+      ownerTokenIdentifier: identity.tokenIdentifier,
+      name: `${project.name} copy`,
+      createdAt: now,
+      updatedAt: now,
+      lastOpenedAt: now,
+      thumbnailTone: project.thumbnailTone,
+      spriteCount: project.spriteCount,
+      isDeleted: false,
+    });
+
+    await ctx.db.insert("projectDocuments", {
+      projectId: newProjectId,
+      version: document.version,
+      stage: document.stage,
+      updatedAt: now,
+    });
+
+    await replaceProjectSprites(ctx, newProjectId, sprites, now);
+
+    return newProjectId;
+  },
+});

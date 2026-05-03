@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { explainBlocks, streamExplainBlocks } from "@/lib/ai/explainBlocks";
+import { isAuthenticated } from "@/lib/auth-server";
 
 function streamToResponse(stream: Awaited<ReturnType<typeof streamExplainBlocks>>) {
   const encoder = new TextEncoder();
@@ -31,6 +32,10 @@ function streamToResponse(stream: Awaited<ReturnType<typeof streamExplainBlocks>
 
 export async function POST(request: Request) {
   try {
+    if (!(await isAuthenticated())) {
+      return NextResponse.json({ error: "Sign in to use AI." }, { status: 401 });
+    }
+
     const body: unknown = await request.json();
 
     if (typeof body !== "object" || body === null || Array.isArray(body)) {

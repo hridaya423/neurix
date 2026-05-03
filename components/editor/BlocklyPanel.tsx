@@ -732,6 +732,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
 
     workspaceRef.current = workspace;
     loadWorkspace(workspace, initialWorkspaceStateRef.current);
+    let isHydratingWorkspace = true;
 
     const attachExplainContextMenus = () => {
       const blocks = workspace.getAllBlocks(false) as Blockly.BlockSvg[];
@@ -774,11 +775,15 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
       updateSelectedAiPrompt();
       attachExplainContextMenus();
       if (event.isUiEvent) return;
+      if (isHydratingWorkspace) return;
       emitWorkspaceChange();
     });
 
     attachExplainContextMenus();
-    emitWorkspaceChange();
+    const hydrationTimer = window.setTimeout(() => {
+      isHydratingWorkspace = false;
+      emitWorkspaceChange();
+    }, 0);
 
     const resizeObserver = new ResizeObserver(() => {
       Blockly.svgResize(workspace);
@@ -786,6 +791,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
     resizeObserver.observe(host);
 
     return () => {
+      window.clearTimeout(hydrationTimer);
       resizeObserver.disconnect();
       workspace.dispose();
       workspaceRef.current = null;

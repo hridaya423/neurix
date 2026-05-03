@@ -4,13 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "convex:dev": "convex dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
+    "@convex-dev/better-auth": "^0.12.1",
     "@openrouter/sdk": "^0.12.24",
+    "better-auth": "^1.6.9",
     "blockly": "^12.5.1",
+    "convex": "^1.37.0",
+    "lucide-react": "^1.14.0",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"

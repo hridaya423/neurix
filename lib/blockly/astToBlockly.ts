@@ -169,8 +169,22 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
       return init(block);
     case "show":
       return init(workspace.newBlock("looks_show"));
-      case "hide":
+    case "hide":
         return init(workspace.newBlock("looks_hide"));
+    case "goToLayer":
+      block = workspace.newBlock("looks_go_to_layer");
+      setField(block, "LAYER", node.layer);
+      return init(block);
+    case "changeLayer":
+      block = workspace.newBlock("looks_change_layer");
+      setField(block, "DIRECTION", node.direction);
+      return init(block);
+    case "switchBackdrop":
+      block = workspace.newBlock("looks_switch_backdrop");
+      setField(block, "BACKDROP", node.backdropId);
+      return init(block);
+    case "nextBackdrop":
+      return init(workspace.newBlock("looks_next_backdrop"));
     case "setVariable":
     case "changeVariable":
       return null;

@@ -44,6 +44,7 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
   const lastSavedRef = useRef<string | null>(null);
   const didHydrateRef = useRef(false);
   const hydrateTimeRef = useRef(0);
+  const touchedProjectRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!session.isPending && !session.data) {
@@ -52,10 +53,13 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
   }, [router, session.data, session.isPending]);
 
   useEffect(() => {
-    if (data) {
-      void touchProject({ projectId: convexProjectId });
+    if (data && touchedProjectRef.current !== projectId) {
+      touchedProjectRef.current = projectId;
+      void touchProject({ projectId: convexProjectId }).catch(() => {
+        touchedProjectRef.current = null;
+      });
     }
-  }, [convexProjectId, data, touchProject]);
+  }, [convexProjectId, data, projectId, touchProject]);
 
   const initialDocument = useMemo(() => data ? normalizeDocument(data.document) : null, [data]);
 

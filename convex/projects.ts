@@ -11,6 +11,7 @@ type SavedSprite = {
   y: number;
   size: number;
   direction: number;
+  layer?: number;
   tone: string;
   visible: boolean;
   workspaceState: string | null;
@@ -18,18 +19,31 @@ type SavedSprite = {
   cloneProgram?: unknown[];
 };
 
+const initialBackdrop = {
+  id: "backdrop-1",
+  name: "Backdrop 1",
+  fill: "#f5f5f7",
+  image: '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360" viewBox="0 0 480 360"><rect width="480" height="360" fill="#f5f5f7"/></svg>',
+  imageFormat: "svg" as const,
+  rotationCenterX: 240,
+  rotationCenterY: 180,
+  artwork: { elements: [], pixelCells: [] },
+};
+
 const stage = {
   minX: -240,
   maxX: 240,
   minY: -180,
   maxY: 180,
-  background: null,
+  background: initialBackdrop.fill,
+  backdrops: [initialBackdrop],
+  currentBackdropId: initialBackdrop.id,
 };
 
 const initialSprites: SavedSprite[] = [
-  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, tone: "#56CBF9", visible: true, workspaceState: null, program: [] },
-  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] },
-  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, tone: "#AFBED1", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#56CBF9", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] },
+  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [] },
 ];
 
 const sprite = v.object({
@@ -39,11 +53,23 @@ const sprite = v.object({
   y: v.number(),
   size: v.number(),
   direction: v.number(),
+  layer: v.optional(v.number()),
   tone: v.string(),
   visible: v.boolean(),
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
   cloneProgram: v.optional(v.array(v.any())),
+});
+
+const backdrop = v.object({
+  id: v.string(),
+  name: v.string(),
+  fill: v.string(),
+  image: v.optional(v.string()),
+  imageFormat: v.optional(v.union(v.literal("svg"), v.literal("png"), v.literal("jpg"))),
+  rotationCenterX: v.optional(v.number()),
+  rotationCenterY: v.optional(v.number()),
+  artwork: v.optional(v.any()),
 });
 
 const documentArg = v.object({
@@ -54,6 +80,8 @@ const documentArg = v.object({
     minY: v.number(),
     maxY: v.number(),
     background: v.union(v.string(), v.null()),
+    backdrops: v.optional(v.array(backdrop)),
+    currentBackdropId: v.optional(v.string()),
   }),
   sprites: v.array(sprite),
 });
@@ -239,8 +267,14 @@ export const saveProject = mutation({
 export const touchProject = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProject(ctx, args.projectId);
-    await ctx.db.patch(args.projectId, { lastOpenedAt: Date.now() });
+    const { project } = await requireProject(ctx, args.projectId);
+    const now = Date.now();
+
+    if (now - project.lastOpenedAt < 60_000) {
+      return;
+    }
+
+    await ctx.db.patch(args.projectId, { lastOpenedAt: now });
   },
 });
 

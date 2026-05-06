@@ -21,6 +21,8 @@ function valueToJs(value: ScriptValue): string {
       return `(vars[${jsString(value.name)}] ?? 0)`;
     case "spriteProperty":
       return `sprite.${value.property}`;
+    case "stageProperty":
+      return value.property === "backdropName" ? "api.backdropName()" : "api.backdropNumber()";
     case "sensing":
       if (value.property === "mouseX") return "api.mouseX()";
       if (value.property === "mouseY") return "api.mouseY()";
@@ -175,6 +177,14 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, "sprite.show();")];
       case "hide":
         return [line(depth, "sprite.hide();")];
+      case "goToLayer":
+        return [line(depth, `api.goToLayer(${jsString(node.layer)});`)];
+      case "changeLayer":
+        return [line(depth, `api.changeLayer(${jsString(node.direction)}, Math.max(0, Math.floor(Number(${valueToJs(node.amount)}) || 0)));`)];
+      case "switchBackdrop":
+        return [line(depth, `api.switchBackdrop(${jsString(node.backdropId)});`)];
+      case "nextBackdrop":
+        return [line(depth, "api.nextBackdrop();")];
       case "setVariable":
         return [line(depth, `vars[${jsString(node.name)}] = ${valueToJs(node.value)};`)];
       case "changeVariable":

@@ -13,6 +13,7 @@ let customBlocksRegistered = false;
 type BlocklyPanelProps = {
   activeSpriteId: string;
   activeSpriteName: string;
+  backdrops: { id: string; name: string }[];
   workspaceState: string | null;
   onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram) => void;
 };
@@ -43,6 +44,8 @@ const KEY_OPTIONS = [
   ..."0123456789".split("").map((key) => [key, key] as [string, string]),
   ["-", "-"], ["=", "="], ["[", "["], ["]", "]"], [";", ";"], ["'", "'"], [",", ","], [".", "."], ["/", "/"], ["\\", "\\"],
 ] satisfies [string, string][];
+
+const backdropOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
 
 const CUSTOM_BLOCKS = [
   {
@@ -358,6 +361,42 @@ const CUSTOM_BLOCKS = [
     nextStatement: null,
     style: "looks_blocks",
   },
+  {
+    type: "looks_go_to_layer",
+    message0: "go to %1 layer",
+    args0: [{ type: "field_dropdown", name: "LAYER", options: [["front", "front"], ["back", "back"]] }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  {
+    type: "looks_change_layer",
+    message0: "go %1 %2 layers",
+    args0: [
+      { type: "field_dropdown", name: "DIRECTION", options: [["forward", "forward"], ["backward", "backward"]] },
+      { type: "input_value", name: "AMOUNT", check: "Number" },
+    ],
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  {
+    type: "looks_switch_backdrop",
+    message0: "switch backdrop to %1",
+    args0: [{ type: "field_dropdown", name: "BACKDROP", options: [["Backdrop 1", "backdrop-1"]] }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  {
+    type: "looks_next_backdrop",
+    message0: "next backdrop",
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  { type: "looks_backdrop_name", message0: "backdrop name", output: "String", style: "looks_blocks" },
+  { type: "looks_backdrop_number", message0: "backdrop number", output: "Number", style: "looks_blocks" },
   { type: "looks_size_reporter", message0: "size", output: "Number", style: "looks_blocks" },
   {
     type: "looks_set_tone",
@@ -661,6 +700,12 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "looks_change_tone", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: 1 } } } } },
         { kind: "block", type: "looks_show" },
         { kind: "block", type: "looks_hide" },
+        { kind: "block", type: "looks_go_to_layer" },
+        { kind: "block", type: "looks_change_layer", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: 1 } } } } },
+        { kind: "block", type: "looks_switch_backdrop" },
+        { kind: "block", type: "looks_next_backdrop" },
+        { kind: "block", type: "looks_backdrop_name" },
+        { kind: "block", type: "looks_backdrop_number" },
         { kind: "block", type: "looks_size_reporter" },
       ],
     },
@@ -869,6 +914,44 @@ function getCustomBlockDropdownOptions(workspace: Blockly.Workspace): [string, s
   return names.length > 0 ? names.map((name) => [name, name] as [string, string]) : [["(no blocks yet)", ""]];
 }
 
+function customBlockMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
+  const sourceBlock = this.getSourceBlock();
+  if (!sourceBlock) return [["(no blocks yet)", ""]];
+  return getCustomBlockDropdownOptions(sourceBlock.workspace);
+}
+
+function setCustomCallName(field: Blockly.FieldDropdown, name: string) {
+  field.setOptions(customBlockMenuGenerator);
+  field.setValue(name);
+}
+
+function backdropMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
+  const sourceBlock = this.getSourceBlock();
+  if (!sourceBlock) return [["Backdrop 1", "backdrop-1"]];
+  return backdropOptionsByWorkspace.get(sourceBlock.workspace) ?? [["Backdrop 1", "backdrop-1"]];
+}
+
+function formatBackdropOptions(backdrops: { id: string; name: string }[]) {
+  return backdrops.length > 0
+    ? backdrops.map((backdrop, index) => [backdrop.name.trim() || `Backdrop ${index + 1}`, backdrop.id] as [string, string])
+    : [["Backdrop 1", "backdrop-1"] as [string, string]];
+}
+
+function refreshBackdropFields(workspace: Blockly.Workspace, backdrops: { id: string; name: string }[]) {
+  const options = formatBackdropOptions(backdrops);
+  const ids = new Set(options.map(([, id]) => id));
+  backdropOptionsByWorkspace.set(workspace, options);
+
+  for (const block of workspace.getBlocksByType("looks_switch_backdrop", false)) {
+    const field = block.getField("BACKDROP") as Blockly.FieldDropdown | null;
+    if (!field) continue;
+    field.setOptions(backdropMenuGenerator);
+    if (!ids.has(field.getValue() ?? "")) {
+      field.setValue(options[0][1]);
+    }
+  }
+}
+
 function customBlocksFlyout(workspace: Blockly.Workspace): Blockly.utils.toolbox.FlyoutItemInfoArray {
   const names = getCustomBlockNames(workspace);
   const items: Blockly.utils.toolbox.FlyoutItemInfoArray = [
@@ -926,8 +1009,7 @@ function registerCustomBlocks() {
           for (const callBlock of this.workspace.getBlocksByType("custom_call", false)) {
             const field = callBlock.getField("NAME") as Blockly.FieldDropdown | null;
             if (field && field.getValue() === oldName) {
-              field.getOptions(false);
-              field.setValue(newName);
+              setCustomCallName(field, newName);
             }
           }
         }
@@ -939,17 +1021,21 @@ function registerCustomBlocks() {
     init: function () {
       this.appendDummyInput()
         .appendField("run")
-        .appendField(
-          new Blockly.FieldDropdown(function () {
-            const sourceBlock = this.getSourceBlock();
-            if (!sourceBlock) return [["(no blocks yet)", ""]];
-            return getCustomBlockDropdownOptions(sourceBlock.workspace);
-          }),
-          "NAME",
-        );
+        .appendField(new Blockly.FieldDropdown(customBlockMenuGenerator), "NAME");
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setStyle("custom_blocks");
+    },
+  };
+
+  Blockly.Blocks["looks_switch_backdrop"] = {
+    init: function () {
+      this.appendDummyInput()
+        .appendField("switch backdrop to")
+        .appendField(new Blockly.FieldDropdown(backdropMenuGenerator), "BACKDROP");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("looks_blocks");
     },
   };
 
@@ -959,9 +1045,10 @@ function registerCustomBlocks() {
 function refreshCustomCallFields(workspace: Blockly.Workspace) {
   const names = getCustomBlockNames(workspace);
   for (const block of workspace.getBlocksByType("custom_call", false)) {
-    const field = block.getField("NAME");
+    const field = block.getField("NAME") as Blockly.FieldDropdown | null;
     if (!field) continue;
-    const current = field.getValue();
+    field.setOptions(customBlockMenuGenerator);
+    const current = field.getValue() ?? "";
     if (names.length > 0 && !names.includes(current)) {
       field.setValue(names[0]);
     }
@@ -999,13 +1086,14 @@ async function readTextStream(response: Response, onChunk: (text: string) => voi
   }
 }
 
-export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
+export function BlocklyPanel({ activeSpriteId, activeSpriteName, backdrops, workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
   const activeSpriteNameRef = useRef(activeSpriteName);
   const initialWorkspaceStateRef = useRef(workspaceState);
   const onWorkspaceChangeRef = useRef(onWorkspaceChange);
+  const backdropsRef = useRef(backdrops);
   const [selectedCustomName, setSelectedCustomName] = useState<string | null>(null);
   const [selectedCustomBlockId, setSelectedCustomBlockId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1020,6 +1108,15 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
   useEffect(() => {
     onWorkspaceChangeRef.current = onWorkspaceChange;
   }, [onWorkspaceChange]);
+
+  useEffect(() => {
+    backdropsRef.current = backdrops;
+    const workspace = workspaceRef.current;
+    if (workspace) {
+      refreshBackdropFields(workspace, backdrops);
+      workspace.refreshToolboxSelection();
+    }
+  }, [backdrops]);
 
   useEffect(() => {
     activeSpriteNameRef.current = activeSpriteName;
@@ -1159,6 +1256,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, workspaceState,
     });
 
     workspaceRef.current = workspace;
+    refreshBackdropFields(workspace, backdropsRef.current);
     registerCustomFlyout(workspace);
     loadWorkspace(workspace, initialWorkspaceStateRef.current);
     let isHydratingWorkspace = true;

@@ -7,6 +7,7 @@ export type ScriptValue =
   | { type: "string"; value: string }
   | { type: "variable"; name: string }
   | { type: "spriteProperty"; property: "x" | "y" | "direction" | "size" }
+  | { type: "stageProperty"; property: "backdropName" | "backdropNumber" }
   | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "distanceToCenter" | "lastKey" }
   | { type: "random"; from: ScriptValue; to: ScriptValue }
   | { type: "arithmetic"; operator: "+" | "-" | "*" | "/" | "%" | "^"; left: ScriptValue; right: ScriptValue }
@@ -55,6 +56,10 @@ export type ScriptNode =
   | { type: "setSize"; size: ScriptValue }
   | { type: "show" }
   | { type: "hide" }
+  | { type: "goToLayer"; layer: "front" | "back" }
+  | { type: "changeLayer"; direction: "forward" | "backward"; amount: ScriptValue }
+  | { type: "switchBackdrop"; backdropId: string }
+  | { type: "nextBackdrop" }
   | { type: "setTone"; tone: string }
   | { type: "changeTone"; amount: ScriptValue }
   | { type: "setVariable"; name: string; value: ScriptValue }

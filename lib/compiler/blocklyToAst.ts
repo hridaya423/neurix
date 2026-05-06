@@ -44,6 +44,10 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0): Scr
       return { type: "spriteProperty", property: "direction" };
     case "looks_size_reporter":
       return { type: "spriteProperty", property: "size" };
+    case "looks_backdrop_name":
+      return { type: "stageProperty", property: "backdropName" };
+    case "looks_backdrop_number":
+      return { type: "stageProperty", property: "backdropNumber" };
     case "sensing_mouse_x":
       return { type: "sensing", property: "mouseX" };
     case "sensing_mouse_y":
@@ -330,6 +334,22 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
         break;
       case "looks_hide":
         program.push({ type: "hide" });
+        break;
+      case "looks_go_to_layer":
+        program.push({ type: "goToLayer", layer: String(block.getFieldValue("LAYER")) === "back" ? "back" : "front" });
+        break;
+      case "looks_change_layer":
+        program.push({
+          type: "changeLayer",
+          direction: String(block.getFieldValue("DIRECTION")) === "backward" ? "backward" : "forward",
+          amount: getValueInput(block, "AMOUNT", 1),
+        });
+        break;
+      case "looks_switch_backdrop":
+        program.push({ type: "switchBackdrop", backdropId: String(block.getFieldValue("BACKDROP") ?? "backdrop-1") });
+        break;
+      case "looks_next_backdrop":
+        program.push({ type: "nextBackdrop" });
         break;
       case "variables_set":
         program.push({ type: "setVariable", name: getVariableName(block), value: getValueInput(block, "VALUE", 0) });

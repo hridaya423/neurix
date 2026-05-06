@@ -16,6 +16,8 @@ export type ScriptRuntime = {
   getY: () => number;
   getDirection: () => number;
   getSize: () => number;
+  getBackdropName: () => string;
+  getBackdropNumber: () => number;
   move: (steps: number) => void;
   turn: (degrees: number) => void;
   setPosition: (x: number, y: number) => void;
@@ -32,6 +34,10 @@ export type ScriptRuntime = {
   changeTone: (amount: number) => void;
   createClone: () => void;
   deleteClone: () => void;
+  goToLayer: (layer: "front" | "back") => void;
+  changeLayer: (direction: "forward" | "backward", amount: number) => void;
+  switchBackdrop: (backdropId: string) => void;
+  nextBackdrop: () => void;
   show: () => void;
   hide: () => void;
 };
@@ -66,6 +72,8 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
       if (value.property === "y") return runtime.getY();
       if (value.property === "direction") return runtime.getDirection();
       return runtime.getSize();
+    case "stageProperty":
+      return value.property === "backdropName" ? runtime.getBackdropName() : runtime.getBackdropNumber();
     case "sensing":
       if (value.property === "mouseX") return runtime.getMouseX();
       if (value.property === "mouseY") return runtime.getMouseY();
@@ -284,6 +292,18 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "hide":
       runtime.hide();
+      break;
+    case "goToLayer":
+      runtime.goToLayer(node.layer);
+      break;
+    case "changeLayer":
+      runtime.changeLayer(node.direction, Math.max(0, Math.floor(toNumber(valueOf(node.amount, runtime, variables)))));
+      break;
+    case "switchBackdrop":
+      runtime.switchBackdrop(node.backdropId);
+      break;
+    case "nextBackdrop":
+      runtime.nextBackdrop();
       break;
     case "setVariable":
       variables[node.name] = valueOf(node.value, runtime, variables);

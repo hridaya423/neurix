@@ -8,11 +8,23 @@ const sprite = v.object({
   y: v.number(),
   size: v.number(),
   direction: v.number(),
+  layer: v.optional(v.number()),
   tone: v.string(),
   visible: v.boolean(),
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
   cloneProgram: v.optional(v.array(v.any())),
+});
+
+const backdrop = v.object({
+  id: v.string(),
+  name: v.string(),
+  fill: v.string(),
+  image: v.optional(v.string()),
+  imageFormat: v.optional(v.union(v.literal("svg"), v.literal("png"), v.literal("jpg"))),
+  rotationCenterX: v.optional(v.number()),
+  rotationCenterY: v.optional(v.number()),
+  artwork: v.optional(v.any()),
 });
 
 export default defineSchema({
@@ -37,6 +49,8 @@ export default defineSchema({
       minY: v.number(),
       maxY: v.number(),
       background: v.union(v.string(), v.null()),
+      backdrops: v.optional(v.array(backdrop)),
+      currentBackdropId: v.optional(v.string()),
     }),
     updatedAt: v.number(),
   }).index("by_projectId", ["projectId"]),

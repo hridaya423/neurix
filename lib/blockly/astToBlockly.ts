@@ -185,6 +185,12 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
       return init(block);
     case "nextBackdrop":
       return init(workspace.newBlock("looks_next_backdrop"));
+    case "switchCostume":
+      block = workspace.newBlock("looks_switch_costume");
+      setField(block, "COSTUME", node.costumeId);
+      return init(block);
+    case "nextCostume":
+      return init(workspace.newBlock("looks_next_costume"));
     case "setVariable":
     case "changeVariable":
       return null;

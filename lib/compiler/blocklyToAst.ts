@@ -48,6 +48,10 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0): Scr
       return { type: "stageProperty", property: "backdropName" };
     case "looks_backdrop_number":
       return { type: "stageProperty", property: "backdropNumber" };
+    case "looks_costume_name":
+      return { type: "costumeProperty", property: "costumeName" };
+    case "looks_costume_number":
+      return { type: "costumeProperty", property: "costumeNumber" };
     case "sensing_mouse_x":
       return { type: "sensing", property: "mouseX" };
     case "sensing_mouse_y":
@@ -350,6 +354,12 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
         break;
       case "looks_next_backdrop":
         program.push({ type: "nextBackdrop" });
+        break;
+      case "looks_switch_costume":
+        program.push({ type: "switchCostume", costumeId: String(block.getFieldValue("COSTUME") ?? "costume-1") });
+        break;
+      case "looks_next_costume":
+        program.push({ type: "nextCostume" });
         break;
       case "variables_set":
         program.push({ type: "setVariable", name: getVariableName(block), value: getValueInput(block, "VALUE", 0) });

@@ -133,6 +133,9 @@ function validateNodes(value: unknown, depth = 0, count = { value: 0 }): ScriptN
       case "hide":
         nodes.push({ type: "hide" });
         break;
+      case "nextCostume":
+        nodes.push({ type: "nextCostume" });
+        break;
       case "wait":
         nodes.push({ type: "wait", seconds: numberValue(item.seconds, 1, 0, 30) });
         break;

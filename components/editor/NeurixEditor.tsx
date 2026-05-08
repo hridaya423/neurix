@@ -476,6 +476,12 @@ export default function NeurixEditor({
     () => (stageState.backdrops ?? [currentBackdrop]).map((backdrop) => ({ id: backdrop.id, name: backdrop.name })),
     [currentBackdrop, stageState.backdrops],
   );
+  const costumeOptions = useMemo(
+    () => activeTarget === "sprite" && activeSprite
+      ? (activeSprite.costumes ?? [defaultCostume(activeSprite.tone)]).map((costume) => ({ id: costume.id, name: costume.name }))
+      : [],
+    [activeSprite, activeTarget],
+  );
 
   const projectDocument = useMemo<ProjectDocument>(() => ({
     version: 1,
@@ -886,6 +892,17 @@ export default function NeurixEditor({
           const index = backdrops.findIndex((backdrop) => backdrop.id === stage.currentBackdropId);
           return index >= 0 ? index + 1 : 1;
         },
+        getCostumeName: () => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          return sprite ? getSpriteCostume(sprite).name : "";
+        },
+        getCostumeNumber: () => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite) return 0;
+          const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+          const index = costumes.findIndex((costume) => costume.id === sprite.currentCostumeId);
+          return index >= 0 ? index + 1 : 1;
+        },
         touchingEdge: () => {
           const sprite = spritesRef.current.find((item) => item.id === spriteId);
           if (!sprite) return false;
@@ -1061,6 +1078,31 @@ export default function NeurixEditor({
             return nextStage;
           });
         },
+        switchCostume: (costumeId) => {
+          setSprites((curr) => curr.map((sprite) => {
+            if (sprite.id !== spriteId) return sprite;
+            const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+            return costumes.some((costume) => costume.id === costumeId)
+              ? { ...sprite, costumes, currentCostumeId: costumeId }
+              : sprite;
+          }));
+          spritesRef.current = spritesRef.current.map((sprite) => {
+            if (sprite.id !== spriteId) return sprite;
+            const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+            return costumes.some((costume) => costume.id === costumeId)
+              ? { ...sprite, costumes, currentCostumeId: costumeId }
+              : sprite;
+          });
+        },
+        nextCostume: () => {
+          const getNextSprite = (sprite: SavedSprite) => {
+            const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+            const index = Math.max(0, costumes.findIndex((costume) => costume.id === sprite.currentCostumeId));
+            return { ...sprite, costumes, currentCostumeId: costumes[(index + 1) % costumes.length].id };
+          };
+          setSprites((curr) => curr.map((sprite) => sprite.id === spriteId ? getNextSprite(sprite) : sprite));
+          spritesRef.current = spritesRef.current.map((sprite) => sprite.id === spriteId ? getNextSprite(sprite) : sprite);
+        },
         show: () => {
           updateSprite(spriteId, { visible: true });
         },
@@ -1209,6 +1251,7 @@ export default function NeurixEditor({
                   activeSpriteName={activeTarget === "stage" ? "Stage" : activeSprite.name}
                   targetType={activeTarget}
                   backdrops={backdropOptions}
+                  costumes={costumeOptions}
                   workspaceState={activeTarget === "stage" ? stageState.workspaceState ?? null : activeSprite.workspaceState}
                   onWorkspaceChange={handleWorkspaceChange}
                 />

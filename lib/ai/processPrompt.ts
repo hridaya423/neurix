@@ -12,7 +12,7 @@ Return JSON with this shape:
 }
 
 Supported ScriptNode types:
-move { steps }, turn { degrees }, setPosition { x, y }, goHome {}, changeX { dx }, changeY { dy }, setX { x }, setY { y }, pointInDirection { direction }, ifOnEdgeBounce {}, say { text }, sayForSeconds { text, seconds }, think { text }, thinkForSeconds { text, seconds }, clearSpeech {}, changeSize { amount }, setSize { size }, show {}, hide {}, wait { seconds }, repeat { times, body }, forever { body }, if { condition, body }, ifElse { condition, thenBody, elseBody }.
+move { steps }, turn { degrees }, setPosition { x, y }, goHome {}, changeX { dx }, changeY { dy }, setX { x }, setY { y }, pointInDirection { direction }, ifOnEdgeBounce {}, say { text }, sayForSeconds { text, seconds }, think { text }, thinkForSeconds { text, seconds }, clearSpeech {}, changeSize { amount }, setSize { size }, show {}, hide {}, nextCostume {}, wait { seconds }, repeat { times, body }, forever { body }, if { condition, body }, ifElse { condition, thenBody, elseBody }.
 
 Supported condition types:
 keyPressed { key: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Space" }, touchingEdge {}, not { condition }, and { left, right }, or { left, right }, compare { left, operator: "=" | "<" | ">", right }.

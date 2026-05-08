@@ -18,6 +18,8 @@ export type ScriptRuntime = {
   getSize: () => number;
   getBackdropName: () => string;
   getBackdropNumber: () => number;
+  getCostumeName: () => string;
+  getCostumeNumber: () => number;
   move: (steps: number) => void;
   turn: (degrees: number) => void;
   setPosition: (x: number, y: number) => void;
@@ -38,6 +40,8 @@ export type ScriptRuntime = {
   changeLayer: (direction: "forward" | "backward", amount: number) => void;
   switchBackdrop: (backdropId: string) => void;
   nextBackdrop: () => void;
+  switchCostume: (costumeId: string) => void;
+  nextCostume: () => void;
   show: () => void;
   hide: () => void;
 };
@@ -74,6 +78,8 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
       return runtime.getSize();
     case "stageProperty":
       return value.property === "backdropName" ? runtime.getBackdropName() : runtime.getBackdropNumber();
+    case "costumeProperty":
+      return value.property === "costumeName" ? runtime.getCostumeName() : runtime.getCostumeNumber();
     case "sensing":
       if (value.property === "mouseX") return runtime.getMouseX();
       if (value.property === "mouseY") return runtime.getMouseY();
@@ -304,6 +310,12 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "nextBackdrop":
       runtime.nextBackdrop();
+      break;
+    case "switchCostume":
+      runtime.switchCostume(node.costumeId);
+      break;
+    case "nextCostume":
+      runtime.nextCostume();
       break;
     case "setVariable":
       variables[node.name] = valueOf(node.value, runtime, variables);

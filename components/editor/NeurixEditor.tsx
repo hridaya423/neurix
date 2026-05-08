@@ -47,6 +47,15 @@ export type StageBackdrop = {
   artwork?: BackdropArtwork;
 };
 
+export type SpriteCostume = {
+  id: string;
+  name: string;
+  image: string;
+  imageFormat: "svg" | "png" | "jpg";
+  rotationCenterX?: number;
+  rotationCenterY?: number;
+};
+
 export type SavedSprite = {
   id: string;
   name: string;
@@ -60,6 +69,8 @@ export type SavedSprite = {
   workspaceState: string | null;
   program: ScriptProgram;
   cloneProgram?: ScriptProgram;
+  costumes?: SpriteCostume[];
+  currentCostumeId?: string;
   sayText?: string;
   isClone?: boolean;
   sourceId?: string;
@@ -75,6 +86,8 @@ export type ProjectDocument = {
     background: string | null;
     backdrops?: StageBackdrop[];
     currentBackdropId?: string;
+    workspaceState?: string | null;
+    program?: ScriptProgram;
   };
   sprites: SavedSprite[];
 };
@@ -91,10 +104,32 @@ const tones = ["#56CBF9", "#7FBEEB", "#AFBED1", "#EAC5D8", "#DBD8F0"];
 
 const backdropFills = ["#f5f5f7", "#EAF6FF", "#FFF4DE", "#EEF8EA", "#F6ECFF", "#F8EFE8"];
 
+const spriteCostumeCanvas = { width: 480, height: 360 };
+
+function createSpriteCostumeSvg(tone: string) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${spriteCostumeCanvas.width}" height="${spriteCostumeCanvas.height}" viewBox="0 0 ${spriteCostumeCanvas.width} ${spriteCostumeCanvas.height}"><rect width="${spriteCostumeCanvas.width}" height="${spriteCostumeCanvas.height}" fill="none"/><g transform="translate(240 180)"><path d="M0 -112C62 -112 112 -62 112 0C112 62 62 112 0 112C-62 112 -112 62 -112 0C-112 -62 -62 -112 0 -112Z" fill="${tone}"/><path d="M-38 -18C-20 -42 20 -42 38 -18" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.72"/><circle cx="-34" cy="22" r="12" fill="#ffffff" opacity="0.72"/><circle cx="34" cy="22" r="12" fill="#ffffff" opacity="0.72"/></g></svg>`;
+}
+
+function defaultCostume(tone: string, name = "Costume 1", id = "costume-1"): SpriteCostume {
+  return {
+    id,
+    name,
+    image: createSpriteCostumeSvg(tone),
+    imageFormat: "svg",
+    rotationCenterX: spriteCostumeCanvas.width / 2,
+    rotationCenterY: spriteCostumeCanvas.height / 2,
+  };
+}
+
+function initialSprite(sprite: Omit<SavedSprite, "costumes" | "currentCostumeId">): SavedSprite {
+  const costume = defaultCostume(sprite.tone);
+  return { ...sprite, costumes: [costume], currentCostumeId: costume.id };
+}
+
 const initialSprites: SavedSprite[] = [
-  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#56CBF9", visible: true, workspaceState: null, program: [], cloneProgram: [] },
-  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#7FBEEB", visible: true, workspaceState: null, program: [], cloneProgram: [] },
-  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [], cloneProgram: [] },
+  initialSprite({ id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#56CBF9", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
+  initialSprite({ id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#7FBEEB", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
+  initialSprite({ id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
 ];
 
 function normalizeProgram(program: unknown): ScriptProgram {
@@ -103,11 +138,27 @@ function normalizeProgram(program: unknown): ScriptProgram {
 }
 
 function normalizeSprite(sprite: SavedSprite, index = 0): SavedSprite {
+  const costumes = Array.isArray(sprite.costumes) && sprite.costumes.length > 0
+    ? sprite.costumes.map((costume, costumeIndex) => ({
+      id: costume.id || `costume-${costumeIndex + 1}`,
+      name: costume.name?.trim() || `Costume ${costumeIndex + 1}`,
+      image: costume.image || createSpriteCostumeSvg(sprite.tone),
+      imageFormat: costume.imageFormat ?? (costume.image?.trim().startsWith("<svg") ? "svg" : "png"),
+      rotationCenterX: typeof costume.rotationCenterX === "number" ? costume.rotationCenterX : spriteCostumeCanvas.width / 2,
+      rotationCenterY: typeof costume.rotationCenterY === "number" ? costume.rotationCenterY : spriteCostumeCanvas.height / 2,
+    }))
+    : [defaultCostume(sprite.tone)];
+  const currentCostumeId = costumes.some((costume) => costume.id === sprite.currentCostumeId)
+    ? sprite.currentCostumeId
+    : costumes[0].id;
+
   return {
     ...sprite,
     layer: typeof sprite.layer === "number" ? sprite.layer : index,
     program: normalizeProgram(sprite.program),
     cloneProgram: normalizeProgram(sprite.cloneProgram),
+    costumes,
+    currentCostumeId,
   };
 }
 
@@ -145,6 +196,7 @@ const stageRange = { minX: -240, maxX: 240, minY: -180, maxY: 180 };
 
 const backdropCanvas = { width: 480, height: 360, pixelColumns: 48, pixelRows: 36 };
 type WorkspaceTab = "scripts" | "art";
+type ActiveTarget = "sprite" | "stage";
 
 function createBackdropSvg(fill: string) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${backdropCanvas.width}" height="${backdropCanvas.height}" viewBox="0 0 ${backdropCanvas.width} ${backdropCanvas.height}"><rect width="${backdropCanvas.width}" height="${backdropCanvas.height}" fill="${fill}"/></svg>`;
@@ -160,6 +212,18 @@ function getBackdropImageSource(backdrop: StageBackdrop) {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(image)}`;
   }
   return image;
+}
+
+function getImageSource(image: string) {
+  if (image.trim().startsWith("<svg")) {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(image)}`;
+  }
+  return image;
+}
+
+function getSpriteCostume(sprite: SavedSprite): SpriteCostume {
+  const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+  return costumes.find((costume) => costume.id === sprite.currentCostumeId) ?? costumes[0];
 }
 
 function defaultBackdrop(fill = "#f5f5f7"): StageBackdrop {
@@ -306,6 +370,8 @@ function normalizeStage(stage: ProjectDocument["stage"]): ProjectDocument["stage
     background: backdrops.find((backdrop) => backdrop.id === currentBackdropId)?.fill ?? backdrops[0].fill,
     backdrops,
     currentBackdropId,
+    workspaceState: stage.workspaceState ?? null,
+    program: normalizeProgram(stage.program),
   };
 }
 
@@ -324,12 +390,12 @@ function getStageStyle(sprite: SavedSprite): CSSProperties {
   const y = clamp(sprite.y, stageRange.minY, stageRange.maxY);
   const px = ((x - stageRange.minX) / (stageRange.maxX - stageRange.minX)) * 100;
   const py = ((stageRange.maxY - y) / (stageRange.maxY - stageRange.minY)) * 100;
-  const size = clamp(16 + sprite.size * 0.2, 18, 42);
+  const sizeScale = clamp(sprite.size, 1, 1000) / 100;
   return {
     left: `${px}%`,
     top: `${py}%`,
-    width: `${(size / backdropCanvas.width) * 100}%`,
-    height: `${(size / backdropCanvas.height) * 100}%`,
+    width: `${25 * sizeScale}%`,
+    height: `${33.333 * sizeScale}%`,
     transform: `translate(-50%, -50%) rotate(${sprite.direction}deg)`,
   };
 }
@@ -359,7 +425,7 @@ export function createDefaultProjectDocument(): ProjectDocument {
 
   return {
     version: 1,
-    stage: { ...stageRange, background: backdrop.fill, backdrops: [backdrop], currentBackdropId: backdrop.id },
+    stage: { ...stageRange, background: backdrop.fill, backdrops: [backdrop], currentBackdropId: backdrop.id, workspaceState: null, program: [] },
     sprites: initialSprites,
   };
 }
@@ -377,6 +443,7 @@ export default function NeurixEditor({
     normalizeLayerOrder((initialDocument.sprites.length > 0 ? initialDocument.sprites : initialSprites).map(normalizeSprite)),
   );
   const [activeId, setActiveId] = useState<string>((initialDocument.sprites[0] ?? initialSprites[0]).id);
+  const [activeTarget, setActiveTarget] = useState<ActiveTarget>("sprite");
   const [isRunning, setIsRunning] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("scripts");
   const [isStageFullscreen, setIsStageFullscreen] = useState(false);
@@ -394,6 +461,10 @@ export default function NeurixEditor({
   const activeSprite = useMemo(
     () => sprites.find((s) => s.id === activeId) ?? sprites[0],
     [activeId, sprites],
+  );
+  const activeCostume = useMemo(
+    () => activeSprite ? getSpriteCostume(activeSprite) : null,
+    [activeSprite],
   );
 
   const stageSprites = useMemo(() => normalizeLayerOrder(sprites), [sprites]);
@@ -413,6 +484,8 @@ export default function NeurixEditor({
       background: currentBackdrop.fill,
       backdrops: stageState.backdrops ?? [currentBackdrop],
       currentBackdropId: currentBackdrop.id,
+      workspaceState: stageState.workspaceState ?? null,
+      program: stageState.program ?? [],
     },
     sprites: sprites.filter((sprite) => !sprite.isClone).map((sprite) => ({
       id: sprite.id,
@@ -427,8 +500,10 @@ export default function NeurixEditor({
       workspaceState: sprite.workspaceState,
       program: sprite.program,
       cloneProgram: sprite.cloneProgram ?? [],
+      costumes: sprite.costumes ?? [defaultCostume(sprite.tone)],
+      currentCostumeId: sprite.currentCostumeId,
     })),
-  }), [currentBackdrop, sprites, stageState.backdrops]);
+  }), [currentBackdrop, sprites, stageState.backdrops, stageState.program, stageState.workspaceState]);
 
   useEffect(() => {
     stageStateRef.current = stageState;
@@ -514,10 +589,15 @@ export default function NeurixEditor({
   };
 
   const handleWorkspaceChange = useCallback(
-    (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram) => {
+    (targetId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram) => {
+      if (targetId === "stage") {
+        setStageState((curr) => ({ ...curr, workspaceState, program }));
+        return;
+      }
+
       setSprites((curr) =>
         curr.map((sprite) =>
-          sprite.id === spriteId ? { ...sprite, workspaceState, program, cloneProgram } : sprite,
+          sprite.id === targetId ? { ...sprite, workspaceState, program, cloneProgram } : sprite,
         ),
       );
     },
@@ -546,16 +626,15 @@ export default function NeurixEditor({
       ) : (
         <BackdropArtworkLayer backdrop={currentBackdrop} className="stage-backdrop-artwork" />
       )}
-      <div className="stage-grid-bg" />
       {stageSprites.map((sprite) => sprite.visible ? (
         <div
           key={sprite.id}
           className="stage-sprite"
           style={getStageStyle(sprite)}
         >
-          <div
-            className="stage-sprite-core"
-            style={{ color: sprite.tone }}
+          <span
+            className="stage-sprite-costume"
+            style={{ backgroundImage: `url("${getImageSource(getSpriteCostume(sprite).image)}")` }}
           />
         </div>
       ) : null)}
@@ -605,9 +684,13 @@ export default function NeurixEditor({
       visible: true,
       workspaceState: null,
       program: [],
+      cloneProgram: [],
+      costumes: [defaultCostume(tone)],
+      currentCostumeId: "costume-1",
     };
     setSprites((curr) => [...curr, next]);
     setActiveId(id);
+    setActiveTarget("sprite");
   };
 
   const addBackdrop = () => {
@@ -623,6 +706,28 @@ export default function NeurixEditor({
         rotationCenterX: backdropCanvas.width / 2,
         rotationCenterY: backdropCanvas.height / 2,
         artwork: { elements: [], pixelCells: [] },
+      };
+      const nextStage = {
+        ...curr,
+        background: nextBackdrop.fill,
+        backdrops: [...backdrops, nextBackdrop],
+        currentBackdropId: id,
+      };
+      stageStateRef.current = nextStage;
+      return nextStage;
+    });
+  };
+
+  const duplicateBackdrop = (backdropId: string) => {
+    setStageState((curr) => {
+      const backdrops = curr.backdrops ?? [defaultBackdrop(curr.background ?? "#f5f5f7")];
+      const source = backdrops.find((backdrop) => backdrop.id === backdropId) ?? backdrops[0];
+      const id = `backdrop-${Date.now()}`;
+      const nextBackdrop: StageBackdrop = {
+        ...source,
+        id,
+        name: `${source.name || "Backdrop"} copy`,
+        artwork: normalizeArtwork(source.artwork),
       };
       const nextStage = {
         ...curr,
@@ -670,6 +775,65 @@ export default function NeurixEditor({
     });
   };
 
+  const updateCostumeById = (spriteId: string, costumeId: string, updater: (costume: SpriteCostume) => SpriteCostume) => {
+    setSprites((curr) => curr.map((sprite) => {
+      if (sprite.id !== spriteId) return sprite;
+      const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+      const nextCostumes = costumes.map((costume) => costume.id === costumeId ? updater(costume) : costume);
+      const currentCostume = nextCostumes.find((costume) => costume.id === sprite.currentCostumeId) ?? nextCostumes[0];
+      return { ...sprite, costumes: nextCostumes, currentCostumeId: currentCostume.id };
+    }));
+  };
+
+  const addCostume = (spriteId: string) => {
+    setSprites((curr) => curr.map((sprite) => {
+      if (sprite.id !== spriteId) return sprite;
+      const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+      const id = `costume-${Date.now()}`;
+      const nextCostume = defaultCostume(sprite.tone, `Costume ${costumes.length + 1}`, id);
+      return { ...sprite, costumes: [...costumes, nextCostume], currentCostumeId: id };
+    }));
+  };
+
+  const duplicateCostume = (spriteId: string, costumeId: string) => {
+    setSprites((curr) => curr.map((sprite) => {
+      if (sprite.id !== spriteId) return sprite;
+      const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+      const source = costumes.find((costume) => costume.id === costumeId) ?? costumes[0];
+      const id = `costume-${Date.now()}`;
+      const nextCostume: SpriteCostume = { ...source, id, name: `${source.name || "Costume"} copy` };
+      return { ...sprite, costumes: [...costumes, nextCostume], currentCostumeId: id };
+    }));
+  };
+
+  const selectCostume = (spriteId: string, costumeId: string) => {
+    setSprites((curr) => curr.map((sprite) => {
+      if (sprite.id !== spriteId) return sprite;
+      const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+      return costumes.some((costume) => costume.id === costumeId)
+        ? { ...sprite, costumes, currentCostumeId: costumeId }
+        : sprite;
+    }));
+  };
+
+  const renameCostume = (spriteId: string, costumeId: string, name: string) => {
+    updateCostumeById(spriteId, costumeId, (costume) => ({ ...costume, name }));
+  };
+
+  const deleteCostume = (spriteId: string, costumeId: string) => {
+    setSprites((curr) => curr.map((sprite) => {
+      if (sprite.id !== spriteId) return sprite;
+      const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
+      if (costumes.length <= 1) return sprite;
+      const removedIndex = costumes.findIndex((costume) => costume.id === costumeId);
+      const remaining = costumes.filter((costume) => costume.id !== costumeId);
+      const nextCurrent = sprite.currentCostumeId === costumeId
+        ? remaining[Math.min(Math.max(removedIndex, 0), remaining.length - 1)]
+        : remaining.find((costume) => costume.id === sprite.currentCostumeId) ?? remaining[0];
+      return { ...sprite, costumes: remaining, currentCostumeId: nextCurrent.id };
+    }));
+  };
+
   const duplicateSprite = () => {
     if (!activeSprite) return;
     const id = `sprite-${Date.now()}`;
@@ -683,13 +847,15 @@ export default function NeurixEditor({
     };
     setSprites((curr) => [...curr, copy]);
     setActiveId(id);
+    setActiveTarget("sprite");
   };
 
   const deleteActive = () => {
-    if (!activeSprite || sprites.length === 1) return;
+    if (activeTarget !== "sprite" || !activeSprite || sprites.length === 1) return;
     const filtered = sprites.filter((s) => s.id !== activeSprite.id);
     setSprites(filtered);
     setActiveId(filtered[0].id);
+    setActiveTarget("sprite");
   };
 
   const runProgram = useCallback(
@@ -927,7 +1093,10 @@ export default function NeurixEditor({
     setSprites(runnableSprites.map((sprite) => ({ ...sprite, sayText: undefined })));
     spritesRef.current = runnableSprites.map((sprite) => ({ ...sprite, sayText: undefined }));
 
-    const jobs = runnableSprites.map((sprite) => runProgramStacks(sprite.id, sprite.program, runId));
+    const jobs = [
+      runProgramStacks("stage", normalizeProgram(stageStateRef.current.program), runId),
+      ...runnableSprites.map((sprite) => runProgramStacks(sprite.id, sprite.program, runId)),
+    ];
     await Promise.all(jobs);
 
     if (runIdRef.current === runId) {
@@ -1033,17 +1202,18 @@ export default function NeurixEditor({
               </div>
             </div>
             <div className="workspace-body">
-              {workspaceTab === "scripts" && activeSprite && (
+              {workspaceTab === "scripts" && (activeTarget === "stage" || activeSprite) && (
                 <BlocklyPanel
-                  key={activeSprite.id}
-                  activeSpriteId={activeSprite.id}
-                  activeSpriteName={activeSprite.name}
+                  key={activeTarget === "stage" ? "stage" : activeSprite.id}
+                  activeSpriteId={activeTarget === "stage" ? "stage" : activeSprite.id}
+                  activeSpriteName={activeTarget === "stage" ? "Stage" : activeSprite.name}
+                  targetType={activeTarget}
                   backdrops={backdropOptions}
-                  workspaceState={activeSprite.workspaceState}
+                  workspaceState={activeTarget === "stage" ? stageState.workspaceState ?? null : activeSprite.workspaceState}
                   onWorkspaceChange={handleWorkspaceChange}
                 />
               )}
-              {workspaceTab === "art" && (
+              {workspaceTab === "art" && activeTarget === "stage" && (
                 <div className="scratch-backdrops-workspace">
                   <aside className="scratch-backdrop-pane">
                     <div className="scratch-backdrop-pane-header">
@@ -1081,6 +1251,15 @@ export default function NeurixEditor({
                           >
                             <Trash2 size={12} strokeWidth={2} />
                           </span>
+                          <span
+                            className="scratch-backdrop-duplicate"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              duplicateBackdrop(backdrop.id);
+                            }}
+                          >
+                            <Copy size={12} strokeWidth={2} />
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -1102,6 +1281,78 @@ export default function NeurixEditor({
                         rotationCenterX: payload.rotationCenterX,
                         rotationCenterY: payload.rotationCenterY,
                         artwork: { elements: [], pixelCells: [] },
+                      }));
+                    }}
+                  />
+                </div>
+              )}
+              {workspaceTab === "art" && activeTarget === "sprite" && activeSprite && activeCostume && (
+                <div className="scratch-backdrops-workspace scratch-costumes-workspace">
+                  <aside className="scratch-backdrop-pane">
+                    <div className="scratch-backdrop-pane-header">
+                      <span>Costumes</span>
+                      <button className="panel-icon-btn" onClick={() => addCostume(activeSprite.id)} type="button" title="Add costume">
+                        <Plus size={13} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                    <div className="scratch-backdrop-assets">
+                      {(activeSprite.costumes ?? [defaultCostume(activeSprite.tone)]).map((costume, index, costumes) => (
+                        <button
+                          className={`scratch-backdrop-asset ${costume.id === activeCostume.id ? "scratch-backdrop-asset-active" : ""}`}
+                          key={costume.id}
+                          onClick={() => selectCostume(activeSprite.id, costume.id)}
+                          type="button"
+                        >
+                          <span className="scratch-backdrop-index">{index + 1}</span>
+                          <span className="scratch-backdrop-thumb scratch-costume-thumb">
+                            <span className="backdrop-image-layer" style={{ backgroundImage: `url("${getImageSource(costume.image)}")` }} />
+                          </span>
+                          <input
+                            value={costume.name}
+                            onChange={(event) => renameCostume(activeSprite.id, costume.id, event.target.value)}
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label="Costume name"
+                          />
+                          <span
+                            className="scratch-backdrop-delete"
+                            aria-disabled={costumes.length === 1}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (costumes.length > 1) deleteCostume(activeSprite.id, costume.id);
+                            }}
+                          >
+                            <Trash2 size={12} strokeWidth={2} />
+                          </span>
+                          <span
+                            className="scratch-backdrop-duplicate"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              duplicateCostume(activeSprite.id, costume.id);
+                            }}
+                          >
+                            <Copy size={12} strokeWidth={2} />
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </aside>
+                  <ScratchPaintBackdropEditor
+                    key={`${activeSprite.id}-${activeCostume.id}`}
+                    image={activeCostume.image}
+                    imageFormat={activeCostume.imageFormat}
+                    imageId={`${activeSprite.id}-${activeCostume.id}`}
+                    name={activeCostume.name}
+                    rotationCenterX={activeCostume.rotationCenterX ?? spriteCostumeCanvas.width / 2}
+                    rotationCenterY={activeCostume.rotationCenterY ?? spriteCostumeCanvas.height / 2}
+                    assetLabel="Costume"
+                    onRename={(name) => renameCostume(activeSprite.id, activeCostume.id, name)}
+                    onChange={(payload) => {
+                      updateCostumeById(activeSprite.id, activeCostume.id, (costume) => ({
+                        ...costume,
+                        image: payload.image,
+                        imageFormat: payload.imageFormat,
+                        rotationCenterX: payload.rotationCenterX,
+                        rotationCenterY: payload.rotationCenterY,
                       }));
                     }}
                   />
@@ -1129,7 +1380,7 @@ export default function NeurixEditor({
           </div>
 
           <div className="panel-card targets-card">
-            {activeSprite && (
+            {activeTarget === "sprite" && activeSprite && (
               <div className="sprite-inspector-bar">
                 <div className="sprite-inspector-identity">
                   <div className="inspector-avatar" style={{ backgroundColor: activeSprite.tone }} />
@@ -1180,9 +1431,9 @@ export default function NeurixEditor({
                   {sprites.filter((sprite) => !sprite.isClone).map((sprite) => (
                     <button
                       key={sprite.id}
-                      className={`sprite-item ${sprite.id === activeId ? "sprite-item-active" : ""}`}
+                      className={`sprite-item ${activeTarget === "sprite" && sprite.id === activeId ? "sprite-item-active" : ""}`}
                       data-name={sprite.name}
-                      onClick={() => setActiveId(sprite.id)}
+                      onClick={() => { setActiveId(sprite.id); setActiveTarget("sprite"); }}
                       type="button"
                     >
                       <div className="sprite-item-core" style={{ backgroundColor: sprite.tone }} />
@@ -1200,8 +1451,8 @@ export default function NeurixEditor({
                   <span>Stage</span>
                 </div>
                 <div className="stage-target-body">
-                  <div className="stage-selector-card">
-                    <button className="stage-selector-preview" onClick={() => setWorkspaceTab("art")} type="button" aria-label={`Edit ${currentBackdrop.name}`}>
+                  <div className={`stage-selector-card ${activeTarget === "stage" ? "stage-selector-card-active" : ""}`}>
+                    <button className="stage-selector-preview" onClick={() => { setActiveTarget("stage"); setWorkspaceTab("scripts"); }} type="button" aria-label="Select Stage scripts">
                       <span className="backdrop-preview-surface" style={{ background: currentBackdrop.fill }}>
                         {currentBackdrop.image ? (
                           <span className="backdrop-image-layer" style={{ backgroundImage: `url("${getBackdropImageSource(currentBackdrop)}")` }} />

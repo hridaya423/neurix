@@ -1,6 +1,15 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const costume = v.object({
+  id: v.string(),
+  name: v.string(),
+  image: v.string(),
+  imageFormat: v.union(v.literal("svg"), v.literal("png"), v.literal("jpg")),
+  rotationCenterX: v.optional(v.number()),
+  rotationCenterY: v.optional(v.number()),
+});
+
 const sprite = v.object({
   id: v.string(),
   name: v.string(),
@@ -14,6 +23,8 @@ const sprite = v.object({
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
   cloneProgram: v.optional(v.array(v.any())),
+  costumes: v.optional(v.array(costume)),
+  currentCostumeId: v.optional(v.string()),
 });
 
 const backdrop = v.object({
@@ -51,6 +62,8 @@ export default defineSchema({
       background: v.union(v.string(), v.null()),
       backdrops: v.optional(v.array(backdrop)),
       currentBackdropId: v.optional(v.string()),
+      workspaceState: v.optional(v.union(v.string(), v.null())),
+      program: v.optional(v.array(v.any())),
     }),
     updatedAt: v.number(),
   }).index("by_projectId", ["projectId"]),

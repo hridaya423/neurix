@@ -49,6 +49,7 @@ type ScratchPaintBackdropEditorProps = {
   name: string;
   rotationCenterX: number;
   rotationCenterY: number;
+  assetLabel?: string;
   onRename: (name: string) => void;
   onChange: (payload: {
     image: string;
@@ -91,6 +92,7 @@ export function ScratchPaintBackdropEditor({
   name,
   rotationCenterX,
   rotationCenterY,
+  assetLabel = "Backdrop",
   onRename,
   onChange,
 }: ScratchPaintBackdropEditorProps) {
@@ -140,7 +142,7 @@ export function ScratchPaintBackdropEditor({
   return (
     <div className="scratch-paint-host">
       <Provider store={store}>
-        <IntlProvider defaultLocale="en" locale="en" messages={{ "paint.paintEditor.costume": "Backdrop" }}>
+        <IntlProvider defaultLocale="en" locale="en" messages={{ "paint.paintEditor.costume": assetLabel }}>
           <PaintEditor
             image={image}
             imageFormat={imageFormat}

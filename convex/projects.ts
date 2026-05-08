@@ -17,7 +17,38 @@ type SavedSprite = {
   workspaceState: string | null;
   program: unknown[];
   cloneProgram?: unknown[];
+  costumes?: SpriteCostume[];
+  currentCostumeId?: string;
 };
+
+type SpriteCostume = {
+  id: string;
+  name: string;
+  image: string;
+  imageFormat: "svg" | "png" | "jpg";
+  rotationCenterX?: number;
+  rotationCenterY?: number;
+};
+
+function createSpriteCostumeSvg(tone: string) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360" viewBox="0 0 480 360"><rect width="480" height="360" fill="none"/><g transform="translate(240 180)"><path d="M0 -112C62 -112 112 -62 112 0C112 62 62 112 0 112C-62 112 -112 62 -112 0C-112 -62 -62 -112 0 -112Z" fill="${tone}"/><path d="M-38 -18C-20 -42 20 -42 38 -18" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.72"/><circle cx="-34" cy="22" r="12" fill="#ffffff" opacity="0.72"/><circle cx="34" cy="22" r="12" fill="#ffffff" opacity="0.72"/></g></svg>`;
+}
+
+function defaultCostume(tone: string): SpriteCostume {
+  return {
+    id: "costume-1",
+    name: "Costume 1",
+    image: createSpriteCostumeSvg(tone),
+    imageFormat: "svg",
+    rotationCenterX: 240,
+    rotationCenterY: 180,
+  };
+}
+
+function initialSprite(sprite: Omit<SavedSprite, "costumes" | "currentCostumeId">): SavedSprite {
+  const costume = defaultCostume(sprite.tone);
+  return { ...sprite, costumes: [costume], currentCostumeId: costume.id };
+}
 
 const initialBackdrop = {
   id: "backdrop-1",
@@ -38,13 +69,24 @@ const stage = {
   background: initialBackdrop.fill,
   backdrops: [initialBackdrop],
   currentBackdropId: initialBackdrop.id,
+  workspaceState: null,
+  program: [],
 };
 
 const initialSprites: SavedSprite[] = [
-  { id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#56CBF9", visible: true, workspaceState: null, program: [] },
-  { id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] },
-  { id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [] },
+  initialSprite({ id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#56CBF9", visible: true, workspaceState: null, program: [] }),
+  initialSprite({ id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] }),
+  initialSprite({ id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [] }),
 ];
+
+const costume = v.object({
+  id: v.string(),
+  name: v.string(),
+  image: v.string(),
+  imageFormat: v.union(v.literal("svg"), v.literal("png"), v.literal("jpg")),
+  rotationCenterX: v.optional(v.number()),
+  rotationCenterY: v.optional(v.number()),
+});
 
 const sprite = v.object({
   id: v.string(),
@@ -59,6 +101,8 @@ const sprite = v.object({
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
   cloneProgram: v.optional(v.array(v.any())),
+  costumes: v.optional(v.array(costume)),
+  currentCostumeId: v.optional(v.string()),
 });
 
 const backdrop = v.object({
@@ -82,6 +126,8 @@ const documentArg = v.object({
     background: v.union(v.string(), v.null()),
     backdrops: v.optional(v.array(backdrop)),
     currentBackdropId: v.optional(v.string()),
+    workspaceState: v.optional(v.union(v.string(), v.null())),
+    program: v.optional(v.array(v.any())),
   }),
   sprites: v.array(sprite),
 });

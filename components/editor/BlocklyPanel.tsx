@@ -13,6 +13,7 @@ let customBlocksRegistered = false;
 type BlocklyPanelProps = {
   activeSpriteId: string;
   activeSpriteName: string;
+  targetType?: "sprite" | "stage";
   backdrops: { id: string; name: string }[];
   workspaceState: string | null;
   onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram) => void;
@@ -68,6 +69,7 @@ const CUSTOM_BLOCKS = [
     args0: [
       { type: "field_number", name: "STEPS", value: 10 },
     ],
+    inputsInline: true,
     previousStatement: null,
     nextStatement: null,
     style: "motion_blocks",
@@ -86,6 +88,7 @@ const CUSTOM_BLOCKS = [
     args0: [
       { type: "field_number", name: "DEGREES", value: 15 },
     ],
+    inputsInline: true,
     previousStatement: null,
     nextStatement: null,
     style: "motion_blocks",
@@ -105,6 +108,7 @@ const CUSTOM_BLOCKS = [
       { type: "field_number", name: "X", value: 0 },
       { type: "field_number", name: "Y", value: 0 },
     ],
+    inputsInline: true,
     previousStatement: null,
     nextStatement: null,
     style: "motion_blocks",
@@ -116,6 +120,7 @@ const CUSTOM_BLOCKS = [
       { type: "input_value", name: "X", check: "Number" },
       { type: "input_value", name: "Y", check: "Number" },
     ],
+    inputsInline: true,
     previousStatement: null,
     nextStatement: null,
     style: "motion_blocks",
@@ -226,6 +231,7 @@ const CUSTOM_BLOCKS = [
       { type: "input_value", name: "X", check: "Number" },
       { type: "input_value", name: "Y", check: "Number" },
     ],
+    inputsInline: true,
     previousStatement: null,
     nextStatement: null,
     style: "motion_blocks",
@@ -794,6 +800,107 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
   ],
 };
 
+const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
+  kind: "categoryToolbox",
+  contents: [
+    {
+      kind: "category",
+      name: "Events",
+      categorystyle: "event_category",
+      contents: [{ kind: "block", type: "event_start" }],
+    },
+    {
+      kind: "category",
+      name: "Looks",
+      categorystyle: "looks_category",
+      contents: [
+        { kind: "block", type: "looks_switch_backdrop" },
+        { kind: "block", type: "looks_next_backdrop" },
+        { kind: "block", type: "looks_backdrop_name" },
+        { kind: "block", type: "looks_backdrop_number" },
+      ],
+    },
+    {
+      kind: "category",
+      name: "Control",
+      categorystyle: "control_category",
+      contents: [
+        { kind: "block", type: "control_wait_value", inputs: { SECONDS: { shadow: { type: "math_number", fields: { NUM: 1 } } } } },
+        { kind: "block", type: "control_repeat_value", inputs: { TIMES: { shadow: { type: "math_number", fields: { NUM: 3 } } } } },
+        { kind: "block", type: "control_repeat_until" },
+        { kind: "block", type: "control_wait_until" },
+        { kind: "block", type: "control_forever" },
+        { kind: "block", type: "control_if" },
+        { kind: "block", type: "control_if_else" },
+      ],
+    },
+    {
+      kind: "category",
+      name: "Sensing",
+      categorystyle: "sensing_category",
+      contents: [
+        { kind: "block", type: "sensing_key_pressed" },
+        { kind: "block", type: "sensing_mouse_down" },
+        { kind: "block", type: "sensing_any_key_pressed" },
+        { kind: "block", type: "sensing_mouse_x" },
+        { kind: "block", type: "sensing_mouse_y" },
+        { kind: "block", type: "sensing_timer" },
+        { kind: "block", type: "sensing_last_key" },
+        { kind: "block", type: "sensing_current_time" },
+      ],
+    },
+    {
+      kind: "category",
+      name: "Custom",
+      categorystyle: "custom_category",
+      custom: "CUSTOM_BLOCKS",
+    },
+    {
+      kind: "category",
+      name: "Variables",
+      categorystyle: "variables_category",
+      custom: "VARIABLE",
+    },
+    {
+      kind: "category",
+      name: "Operators",
+      categorystyle: "operators_category",
+      contents: [
+        { kind: "block", type: "logic_boolean" },
+        { kind: "block", type: "logic_compare" },
+        { kind: "block", type: "logic_operation" },
+        { kind: "block", type: "logic_negate" },
+      ],
+    },
+    {
+      kind: "category",
+      name: "Math",
+      categorystyle: "math_category",
+      contents: [
+        { kind: "block", type: "math_number" },
+        { kind: "block", type: "math_arithmetic" },
+        { kind: "block", type: "math_random_int" },
+        { kind: "block", type: "math_round" },
+        { kind: "block", type: "math_modulo" },
+        { kind: "block", type: "math_single" },
+        { kind: "block", type: "math_trig" },
+      ],
+    },
+    {
+      kind: "category",
+      name: "Text",
+      categorystyle: "text_category",
+      contents: [
+        { kind: "block", type: "text" },
+        { kind: "block", type: "operator_join" },
+        { kind: "block", type: "operator_contains" },
+        { kind: "block", type: "text_length" },
+        { kind: "block", type: "text_charAt" },
+      ],
+    },
+  ],
+};
+
 const THEME = Blockly.Theme.defineTheme("neurix_light", {
   name: "neurix_light",
   base: Blockly.Themes.Zelos,
@@ -1086,7 +1193,7 @@ async function readTextStream(response: Response, onChunk: (text: string) => voi
   }
 }
 
-export function BlocklyPanel({ activeSpriteId, activeSpriteName, backdrops, workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
+export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
@@ -1229,7 +1336,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, backdrops, work
     registerCustomBlocks();
 
     const workspace = Blockly.inject(host, {
-      toolbox: TOOLBOX,
+      toolbox: targetType === "stage" ? STAGE_TOOLBOX : TOOLBOX,
       renderer: "zelos",
       theme: THEME,
       trashcan: true,
@@ -1334,7 +1441,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, backdrops, work
       workspace.dispose();
       workspaceRef.current = null;
     };
-  }, [explainBlock, openAskAi]);
+  }, [explainBlock, openAskAi, targetType]);
 
   const generateCustomDefinition = async () => {
     const workspace = workspaceRef.current;

@@ -17,6 +17,8 @@ type SavedSprite = {
   workspaceState: string | null;
   program: unknown[];
   cloneProgram?: unknown[];
+  broadcastPrograms?: unknown;
+  backdropPrograms?: unknown;
   costumes?: SpriteCostume[];
   currentCostumeId?: string;
 };
@@ -71,6 +73,8 @@ const stage = {
   currentBackdropId: initialBackdrop.id,
   workspaceState: null,
   program: [],
+  broadcastPrograms: {},
+  backdropPrograms: {},
 };
 
 const initialSprites: SavedSprite[] = [
@@ -101,6 +105,8 @@ const sprite = v.object({
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
   cloneProgram: v.optional(v.array(v.any())),
+  broadcastPrograms: v.optional(v.any()),
+  backdropPrograms: v.optional(v.any()),
   costumes: v.optional(v.array(costume)),
   currentCostumeId: v.optional(v.string()),
 });
@@ -128,6 +134,8 @@ const documentArg = v.object({
     currentBackdropId: v.optional(v.string()),
     workspaceState: v.optional(v.union(v.string(), v.null())),
     program: v.optional(v.array(v.any())),
+    broadcastPrograms: v.optional(v.any()),
+    backdropPrograms: v.optional(v.any()),
   }),
   sprites: v.array(sprite),
 });

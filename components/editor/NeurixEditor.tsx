@@ -5,7 +5,7 @@ import type { CSSProperties, PointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlocklyPanel } from "./BlocklyPanel";
 import { ScratchPaintBackdropEditor } from "./ScratchPaintBackdropEditor";
-import type { ScriptNode, ScriptProgram } from "@/lib/compiler/types";
+import type { ScriptEventPrograms, ScriptNode, ScriptProgram } from "@/lib/compiler/types";
 import { runScript } from "@/lib/runtime/interpreter";
 import {
   Play,
@@ -69,6 +69,8 @@ export type SavedSprite = {
   workspaceState: string | null;
   program: ScriptProgram;
   cloneProgram?: ScriptProgram;
+  broadcastPrograms?: ScriptEventPrograms;
+  backdropPrograms?: ScriptEventPrograms;
   costumes?: SpriteCostume[];
   currentCostumeId?: string;
   sayText?: string;
@@ -88,6 +90,8 @@ export type ProjectDocument = {
     currentBackdropId?: string;
     workspaceState?: string | null;
     program?: ScriptProgram;
+    broadcastPrograms?: ScriptEventPrograms;
+    backdropPrograms?: ScriptEventPrograms;
   };
   sprites: SavedSprite[];
 };
@@ -137,6 +141,14 @@ function normalizeProgram(program: unknown): ScriptProgram {
   return Array.isArray(program[0]) ? program as ScriptProgram : [program as ScriptNode[]];
 }
 
+function normalizeProgramMap(programs: unknown): ScriptEventPrograms {
+  if (!programs || typeof programs !== "object" || Array.isArray(programs)) return {};
+
+  return Object.fromEntries(
+    Object.entries(programs).map(([key, value]) => [key, normalizeProgram(value)]).filter(([, value]) => value.length > 0),
+  );
+}
+
 function normalizeSprite(sprite: SavedSprite, index = 0): SavedSprite {
   const costumes = Array.isArray(sprite.costumes) && sprite.costumes.length > 0
     ? sprite.costumes.map((costume, costumeIndex) => ({
@@ -157,6 +169,8 @@ function normalizeSprite(sprite: SavedSprite, index = 0): SavedSprite {
     layer: typeof sprite.layer === "number" ? sprite.layer : index,
     program: normalizeProgram(sprite.program),
     cloneProgram: normalizeProgram(sprite.cloneProgram),
+    broadcastPrograms: normalizeProgramMap(sprite.broadcastPrograms),
+    backdropPrograms: normalizeProgramMap(sprite.backdropPrograms),
     costumes,
     currentCostumeId,
   };
@@ -372,6 +386,8 @@ function normalizeStage(stage: ProjectDocument["stage"]): ProjectDocument["stage
     currentBackdropId,
     workspaceState: stage.workspaceState ?? null,
     program: normalizeProgram(stage.program),
+    broadcastPrograms: normalizeProgramMap(stage.broadcastPrograms),
+    backdropPrograms: normalizeProgramMap(stage.backdropPrograms),
   };
 }
 
@@ -457,6 +473,8 @@ export default function NeurixEditor({
   const stageStateRef = useRef(stageState);
   const spritesRef = useRef(sprites);
   const runProgramRef = useRef<((spriteId: string, program: ScriptProgram, runId: number) => Promise<void>) | null>(null);
+  const runBroadcastRef = useRef<((message: string, runId: number, waitForCompletion: boolean) => Promise<void>) | null>(null);
+  const runBackdropRef = useRef<((backdropId: string, runId: number) => Promise<void>) | null>(null);
 
   const activeSprite = useMemo(
     () => sprites.find((s) => s.id === activeId) ?? sprites[0],
@@ -492,6 +510,8 @@ export default function NeurixEditor({
       currentBackdropId: currentBackdrop.id,
       workspaceState: stageState.workspaceState ?? null,
       program: stageState.program ?? [],
+      broadcastPrograms: stageState.broadcastPrograms ?? {},
+      backdropPrograms: stageState.backdropPrograms ?? {},
     },
     sprites: sprites.filter((sprite) => !sprite.isClone).map((sprite) => ({
       id: sprite.id,
@@ -506,10 +526,12 @@ export default function NeurixEditor({
       workspaceState: sprite.workspaceState,
       program: sprite.program,
       cloneProgram: sprite.cloneProgram ?? [],
+      broadcastPrograms: sprite.broadcastPrograms ?? {},
+      backdropPrograms: sprite.backdropPrograms ?? {},
       costumes: sprite.costumes ?? [defaultCostume(sprite.tone)],
       currentCostumeId: sprite.currentCostumeId,
     })),
-  }), [currentBackdrop, sprites, stageState.backdrops, stageState.program, stageState.workspaceState]);
+  }), [currentBackdrop, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.workspaceState]);
 
   useEffect(() => {
     stageStateRef.current = stageState;
@@ -595,15 +617,15 @@ export default function NeurixEditor({
   };
 
   const handleWorkspaceChange = useCallback(
-    (targetId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram) => {
+    (targetId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms) => {
       if (targetId === "stage") {
-        setStageState((curr) => ({ ...curr, workspaceState, program }));
+        setStageState((curr) => ({ ...curr, workspaceState, program, broadcastPrograms, backdropPrograms }));
         return;
       }
 
       setSprites((curr) =>
         curr.map((sprite) =>
-          sprite.id === targetId ? { ...sprite, workspaceState, program, cloneProgram } : sprite,
+          sprite.id === targetId ? { ...sprite, workspaceState, program, cloneProgram, broadcastPrograms, backdropPrograms } : sprite,
         ),
       );
     },
@@ -1059,25 +1081,26 @@ export default function NeurixEditor({
           setSprites((curr) => moveSpriteByLayers(curr, spriteId, direction, amount));
         },
         switchBackdrop: (backdropId) => {
-          setStageState((curr) => {
-            const backdrops = curr.backdrops ?? [defaultBackdrop(curr.background ?? "#f5f5f7")];
-            const backdrop = backdrops.find((item) => item.id === backdropId);
-            if (!backdrop) return curr;
-            const nextStage = { ...curr, background: backdrop.fill, backdrops, currentBackdropId: backdrop.id };
-            stageStateRef.current = nextStage;
-            return nextStage;
-          });
+          const curr = stageStateRef.current;
+          const backdrops = curr.backdrops ?? [defaultBackdrop(curr.background ?? "#f5f5f7")];
+          const backdrop = backdrops.find((item) => item.id === backdropId);
+          if (!backdrop) return;
+          const nextStage = { ...curr, background: backdrop.fill, backdrops, currentBackdropId: backdrop.id };
+          stageStateRef.current = nextStage;
+          setStageState(nextStage);
+          void runBackdropRef.current?.(backdrop.id, runId);
         },
         nextBackdrop: () => {
-          setStageState((curr) => {
-            const backdrops = curr.backdrops ?? [defaultBackdrop(curr.background ?? "#f5f5f7")];
-            const index = Math.max(0, backdrops.findIndex((backdrop) => backdrop.id === curr.currentBackdropId));
-            const nextBackdrop = backdrops[(index + 1) % backdrops.length];
-            const nextStage = { ...curr, background: nextBackdrop.fill, backdrops, currentBackdropId: nextBackdrop.id };
-            stageStateRef.current = nextStage;
-            return nextStage;
-          });
+          const curr = stageStateRef.current;
+          const backdrops = curr.backdrops ?? [defaultBackdrop(curr.background ?? "#f5f5f7")];
+          const index = Math.max(0, backdrops.findIndex((backdrop) => backdrop.id === curr.currentBackdropId));
+          const nextBackdrop = backdrops[(index + 1) % backdrops.length];
+          const nextStage = { ...curr, background: nextBackdrop.fill, backdrops, currentBackdropId: nextBackdrop.id };
+          stageStateRef.current = nextStage;
+          setStageState(nextStage);
+          void runBackdropRef.current?.(nextBackdrop.id, runId);
         },
+        broadcast: (message, waitForCompletion) => runBroadcastRef.current?.(message, runId, waitForCompletion) ?? Promise.resolve(),
         switchCostume: (costumeId) => {
           setSprites((curr) => curr.map((sprite) => {
             if (sprite.id !== spriteId) return sprite;
@@ -1121,9 +1144,44 @@ export default function NeurixEditor({
     [runProgram],
   );
 
+  const runBroadcastPrograms = useCallback(
+    async (message: string, runId: number, waitForCompletion: boolean) => {
+      const jobs: Promise<void>[] = [];
+      const stageProgram = stageStateRef.current.broadcastPrograms?.[message] ?? [];
+      if (stageProgram.length > 0) jobs.push(runProgramStacks("stage", stageProgram, runId));
+
+      for (const sprite of spritesRef.current) {
+        const program = sprite.broadcastPrograms?.[message] ?? [];
+        if (program.length > 0) jobs.push(runProgramStacks(sprite.id, program, runId));
+      }
+
+      if (waitForCompletion) await Promise.all(jobs);
+      else void Promise.all(jobs);
+    },
+    [runProgramStacks],
+  );
+
+  const runBackdropPrograms = useCallback(
+    async (backdropId: string, runId: number) => {
+      const jobs: Promise<void>[] = [];
+      const stageProgram = stageStateRef.current.backdropPrograms?.[backdropId] ?? [];
+      if (stageProgram.length > 0) jobs.push(runProgramStacks("stage", stageProgram, runId));
+
+      for (const sprite of spritesRef.current) {
+        const program = sprite.backdropPrograms?.[backdropId] ?? [];
+        if (program.length > 0) jobs.push(runProgramStacks(sprite.id, program, runId));
+      }
+
+      await Promise.all(jobs);
+    },
+    [runProgramStacks],
+  );
+
   useEffect(() => {
     runProgramRef.current = runProgramStacks;
-  }, [runProgramStacks]);
+    runBroadcastRef.current = runBroadcastPrograms;
+    runBackdropRef.current = runBackdropPrograms;
+  }, [runBackdropPrograms, runBroadcastPrograms, runProgramStacks]);
 
   const runAllSprites = async () => {
     const runId = runIdRef.current + 1;

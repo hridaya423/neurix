@@ -5,10 +5,11 @@ import * as Blockly from "blockly/core";
 import "blockly/blocks";
 import * as BlocklyEn from "blockly/msg/en";
 import { blocklyToAst, blocklyToPrograms, blockStackToAst } from "@/lib/compiler/blocklyToAst";
-import type { ScriptNode, ScriptProgram } from "@/lib/compiler/types";
+import type { ScriptEventPrograms, ScriptNode, ScriptProgram } from "@/lib/compiler/types";
 import { insertAstUnderDefinition } from "@/lib/blockly/astToBlockly";
 
 let customBlocksRegistered = false;
+const customCallShapeSignatures = new WeakMap<Blockly.Block, string>();
 
 type BlocklyPanelProps = {
   activeSpriteId: string;
@@ -17,7 +18,7 @@ type BlocklyPanelProps = {
   backdrops: { id: string; name: string }[];
   costumes?: { id: string; name: string }[];
   workspaceState: string | null;
-  onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram) => void;
+  onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms) => void;
 };
 
 type AiProcessResponse = {
@@ -36,6 +37,24 @@ type AiExplainResponse = {
 type AiAskResponse = {
   answer?: string;
   error?: string;
+};
+
+type CustomBlockArg = {
+  id: string;
+  name: string;
+  kind: "value" | "boolean";
+};
+
+type CustomBlockPart = CustomBlockArg | {
+  id: string;
+  kind: "label";
+  text: string;
+};
+
+type CustomDefinitionData = {
+  name?: string;
+  args?: CustomBlockArg[];
+  parts?: CustomBlockPart[];
 };
 
 const KEY_OPTIONS = [
@@ -61,6 +80,38 @@ const CUSTOM_BLOCKS = [
   {
     type: "event_clone_start",
     message0: "when I start as a clone",
+    nextStatement: null,
+    style: "event_blocks",
+    hat: "cap",
+  },
+  {
+    type: "event_when_broadcast",
+    message0: "when I receive %1",
+    args0: [{ type: "field_input", name: "MESSAGE", text: "message1" }],
+    nextStatement: null,
+    style: "event_blocks",
+    hat: "cap",
+  },
+  {
+    type: "event_broadcast",
+    message0: "broadcast %1",
+    args0: [{ type: "field_input", name: "MESSAGE", text: "message1" }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "event_blocks",
+  },
+  {
+    type: "event_broadcast_wait",
+    message0: "broadcast %1 and wait",
+    args0: [{ type: "field_input", name: "MESSAGE", text: "message1" }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "event_blocks",
+  },
+  {
+    type: "event_when_backdrop",
+    message0: "when backdrop switches to %1",
+    args0: [{ type: "field_dropdown", name: "BACKDROP", options: [["Backdrop 1", "backdrop-1"]] }],
     nextStatement: null,
     style: "event_blocks",
     hat: "cap",
@@ -682,6 +733,10 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       categorystyle: "event_category",
       contents: [
         { kind: "block", type: "event_start" },
+        { kind: "block", type: "event_when_broadcast" },
+        { kind: "block", type: "event_broadcast" },
+        { kind: "block", type: "event_broadcast_wait" },
+        { kind: "block", type: "event_when_backdrop" },
         { kind: "block", type: "event_clone_start" },
       ],
     },
@@ -781,7 +836,7 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       kind: "category",
       name: "Variables",
       categorystyle: "variables_category",
-      custom: "VARIABLE",
+      custom: "NEURIX_VARIABLES",
     },
     {
       kind: "category",
@@ -830,7 +885,13 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       kind: "category",
       name: "Events",
       categorystyle: "event_category",
-      contents: [{ kind: "block", type: "event_start" }],
+      contents: [
+        { kind: "block", type: "event_start" },
+        { kind: "block", type: "event_when_broadcast" },
+        { kind: "block", type: "event_broadcast" },
+        { kind: "block", type: "event_broadcast_wait" },
+        { kind: "block", type: "event_when_backdrop" },
+      ],
     },
     {
       kind: "category",
@@ -882,7 +943,7 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       kind: "category",
       name: "Variables",
       categorystyle: "variables_category",
-      custom: "VARIABLE",
+      custom: "NEURIX_VARIABLES",
     },
     {
       kind: "category",
@@ -964,6 +1025,11 @@ const THEME = Blockly.Theme.defineTheme("neurix_light", {
       colourSecondary: "#7FBEEB",
       colourTertiary: "#2BAED9",
     },
+    procedure_blocks: {
+      colourPrimary: "#56CBF9",
+      colourSecondary: "#7FBEEB",
+      colourTertiary: "#2BAED9",
+    },
   },
   categoryStyles: {
     event_category: { colour: "#38BDF8" },
@@ -1031,12 +1097,100 @@ function loadWorkspace(workspace: Blockly.WorkspaceSvg, state: string | null) {
 function getCustomBlockNames(workspace: Blockly.Workspace) {
   const names: string[] = [];
   for (const block of workspace.getTopBlocks(false)) {
-    if (block.type === "custom_define" || block.type === "ai_define") {
-      const name = String(block.getFieldValue("NAME") ?? block.getFieldValue("PROMPT") ?? "").trim();
+    if (block.type === "custom_define" || block.type === "ai_define" || block.type === "procedures_defnoreturn") {
+      const name = getCustomBlockName(block).trim();
       if (name && !names.includes(name)) names.push(name);
     }
   }
   return names.sort();
+}
+
+function readCustomDefinitionData(block: Blockly.Block | null): CustomDefinitionData {
+  if (!block) return {};
+
+  try {
+    const data = (block as Blockly.Block & { data?: string | null }).data;
+    return data ? JSON.parse(data) as CustomDefinitionData : {};
+  } catch {
+    return {};
+  }
+}
+
+function getCustomDefinitionBlock(workspace: Blockly.Workspace, name: string) {
+  const targetWorkspace = (workspace as Blockly.WorkspaceSvg).targetWorkspace;
+  const definitionWorkspace = targetWorkspace ?? workspace;
+  const normalizedName = name.trim().toLowerCase().replace(/\s+/g, " ");
+  return definitionWorkspace.getTopBlocks(false).find((block) => isCustomDefinitionBlock(block) && getCustomBlockName(block).trim().toLowerCase().replace(/\s+/g, " ") === normalizedName) ?? null;
+}
+
+function isCustomInputPart(part: CustomBlockPart): part is CustomBlockArg {
+  return part.kind === "value" || part.kind === "boolean";
+}
+
+function getCustomDefinitionParts(block: Blockly.Block | null): CustomBlockPart[] {
+  if (!block) return [];
+
+  const data = readCustomDefinitionData(block);
+  const stored = {
+    args: Array.isArray(data.args) ? data.args : [],
+    parts: Array.isArray(data.parts) ? data.parts : [],
+  };
+
+  if (stored.parts.length > 0) return stored.parts;
+
+  const procedure = block as unknown as Partial<{ getProcedureDef: () => [string, string[], boolean] }>;
+  const names = procedure.getProcedureDef?.()[1] ?? stored.args.map((arg) => arg.name);
+  return names.map((name, index) => {
+    const storedArg = stored.args.find((arg) => arg.name === name) ?? stored.args[index];
+    return {
+      id: storedArg?.id ?? `arg-${index}`,
+      name,
+      kind: storedArg?.kind === "boolean" ? "boolean" : "value",
+    };
+  });
+}
+
+function setCustomDefinitionData(block: Blockly.Block, name: string, parts: CustomBlockPart[]) {
+  (block as Blockly.Block & { data?: string }).data = JSON.stringify({
+    name,
+    args: parts.filter(isCustomInputPart),
+    parts,
+  });
+}
+
+function updateCustomDefinitionShape(block: Blockly.Block) {
+  if (block.type !== "custom_define") return;
+  const name = getCustomBlockName(block) || "block name";
+  const parts = getCustomDefinitionParts(block);
+
+  for (const input of [...block.inputList]) {
+    if (input.name === "HEADER" || /^(DEFARG|DEFPART)\d+$/.test(input.name)) {
+      block.removeInput(input.name, true);
+    }
+  }
+
+  block.appendDummyInput("HEADER")
+    .appendField("define")
+    .appendField(name);
+
+  let inputIndex = 0;
+  parts.forEach((part, index) => {
+    if (!isCustomInputPart(part)) {
+      block.appendDummyInput(`DEFPART${index}`).appendField(part.text);
+      return;
+    }
+
+    const input = block.appendValueInput(`DEFARG${inputIndex}`).appendField(part.name);
+    if (part.kind === "boolean") input.setCheck("Boolean");
+    inputIndex += 1;
+  });
+
+  setCustomDefinitionData(block, name, parts);
+
+  block.setInputsInline(true);
+  if ((block as Blockly.BlockSvg).rendered) {
+    (block as Blockly.BlockSvg).render();
+  }
 }
 
 function getCustomBlockDropdownOptions(workspace: Blockly.Workspace): [string, string][] {
@@ -1047,12 +1201,68 @@ function getCustomBlockDropdownOptions(workspace: Blockly.Workspace): [string, s
 function customBlockMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
   const sourceBlock = this.getSourceBlock();
   if (!sourceBlock) return [["(no blocks yet)", ""]];
-  return getCustomBlockDropdownOptions(sourceBlock.workspace);
+  const targetWorkspace = (sourceBlock.workspace as Blockly.WorkspaceSvg).targetWorkspace;
+  return getCustomBlockDropdownOptions(targetWorkspace ?? sourceBlock.workspace);
 }
 
 function setCustomCallName(field: Blockly.FieldDropdown, name: string) {
   field.setOptions(customBlockMenuGenerator);
   field.setValue(name);
+}
+
+function updateCustomCallShape(block: Blockly.Block) {
+  const name = String(block.getFieldValue("NAME") ?? "");
+  const definition = getCustomDefinitionBlock(block.workspace, name);
+  const parts = definition ? getCustomDefinitionParts(definition) : getStoredCustomCallParts(block);
+  const signature = JSON.stringify({ name, parts });
+  if (customCallShapeSignatures.get(block) === signature) return;
+  customCallShapeSignatures.set(block, signature);
+  (block as Blockly.Block & { data?: string }).data = JSON.stringify({ parts });
+
+  for (const input of [...block.inputList]) {
+    if (/^(ARG|PART)\d+$/.test(input.name)) {
+      block.removeInput(input.name, true);
+    }
+  }
+
+  let inputIndex = 0;
+  parts.forEach((part, index) => {
+    if (!isCustomInputPart(part)) {
+      block.appendDummyInput(`PART${index}`).appendField(part.text);
+      return;
+    }
+
+    const input = block.appendValueInput(`ARG${inputIndex}`).appendField(part.name);
+    if (part.kind === "boolean") input.setCheck("Boolean");
+    inputIndex += 1;
+  });
+  block.setInputsInline(true);
+
+  if ((block as Blockly.BlockSvg).rendered) {
+    (block as Blockly.BlockSvg).render();
+  }
+}
+
+function getStoredCustomCallParts(block: Blockly.Block): CustomBlockPart[] {
+  try {
+    const data = (block as Blockly.Block & { data?: string | null }).data;
+    const parsed = data ? JSON.parse(data) as { parts?: CustomBlockPart[] } : null;
+    return Array.isArray(parsed?.parts) ? parsed.parts : [];
+  } catch {
+    return [];
+  }
+}
+
+function refreshCustomDefinitionShapes(workspace: Blockly.Workspace) {
+  for (const block of workspace.getAllBlocks(false)) {
+    updateCustomDefinitionShape(block);
+  }
+}
+
+function refreshAllCustomCallShapes(workspace: Blockly.Workspace) {
+  for (const block of workspace.getBlocksByType("custom_call", false)) {
+    updateCustomCallShape(block);
+  }
 }
 
 function backdropMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
@@ -1084,7 +1294,10 @@ function refreshBackdropFields(workspace: Blockly.Workspace, backdrops: { id: st
   const ids = new Set(options.map(([, id]) => id));
   backdropOptionsByWorkspace.set(workspace, options);
 
-  for (const block of workspace.getBlocksByType("looks_switch_backdrop", false)) {
+  for (const block of [
+    ...workspace.getBlocksByType("looks_switch_backdrop", false),
+    ...workspace.getBlocksByType("event_when_backdrop", false),
+  ]) {
     const field = block.getField("BACKDROP") as Blockly.FieldDropdown | null;
     if (!field) continue;
     field.setOptions(backdropMenuGenerator);
@@ -1112,45 +1325,54 @@ function refreshCostumeFields(workspace: Blockly.Workspace, costumes: { id: stri
 function customBlocksFlyout(workspace: Blockly.Workspace): Blockly.utils.toolbox.FlyoutItemInfoArray {
   const names = getCustomBlockNames(workspace);
   const items: Blockly.utils.toolbox.FlyoutItemInfoArray = [
-    { kind: "button", text: "Create block", callbackkey: "CREATE_CUSTOM_BLOCK" },
+    { kind: "button", text: "Make a Block", callbackkey: "CREATE_CUSTOM_BLOCK" },
   ];
   if (names.length > 0) {
-    items.push({ kind: "block", type: "custom_call" });
+    items.push({ kind: "block", type: "custom_call", fields: { NAME: names[0] } });
   }
   return items as unknown as Blockly.utils.toolbox.FlyoutItemInfoArray;
 }
 
-function createCustomDefinition(workspace: Blockly.WorkspaceSvg) {
-  const rawName = window.prompt("Name this block", "full movement");
-  const name = rawName?.trim().replace(/\s+/g, " ");
-  if (!name) return;
+function variablesFlyout(workspace: Blockly.WorkspaceSvg): Blockly.utils.toolbox.FlyoutItemInfoArray {
+  const items = Blockly.Variables.flyoutCategory(workspace, false).filter((item) => item.kind !== "button");
+  return [
+    { kind: "button", text: "Make a Variable", callbackkey: "NEURIX_CREATE_VARIABLE" },
+    ...items,
+  ] as Blockly.utils.toolbox.FlyoutItemInfoArray;
+}
 
-  const definitionCount = workspace.getTopBlocks(false).filter((item) => item.type === "custom_define").length;
+function createCustomDefinition(workspace: Blockly.WorkspaceSvg, name: string, parts: CustomBlockPart[]) {
+  const definitionCount = workspace.getTopBlocks(false).filter((item) => isCustomDefinitionBlock(item)).length;
   const block = workspace.newBlock("custom_define") as Blockly.BlockSvg;
-  block.setFieldValue(name, "NAME");
+  setCustomDefinitionData(block, name, parts);
+  updateCustomDefinitionShape(block);
   block.initSvg();
   block.render();
   block.moveBy(260, 150 + definitionCount * 64);
   workspace.refreshToolboxSelection();
+  return block;
 }
 
-function registerCustomFlyout(workspace: Blockly.WorkspaceSvg) {
+function registerCustomFlyout(workspace: Blockly.WorkspaceSvg, openCustomBlockDialog: () => void, openVariableDialog: () => void) {
   workspace.registerToolboxCategoryCallback("CUSTOM_BLOCKS", customBlocksFlyout);
-  workspace.registerButtonCallback("CREATE_CUSTOM_BLOCK", () => createCustomDefinition(workspace));
+  workspace.registerToolboxCategoryCallback("NEURIX_VARIABLES", variablesFlyout);
+  workspace.registerButtonCallback("CREATE_CUSTOM_BLOCK", openCustomBlockDialog);
+  workspace.registerButtonCallback("NEURIX_CREATE_VARIABLE", openVariableDialog);
 }
 
 function registerCustomBlocks() {
   Blockly.setLocale(BlocklyEn as unknown as Record<string, string>);
   if (customBlocksRegistered) return;
+  Blockly.FlyoutButton.TEXT_MARGIN_X = 18;
+  Blockly.FlyoutButton.TEXT_MARGIN_Y = 9;
+  Blockly.FlyoutButton.BORDER_RADIUS = 7;
   Blockly.common.defineBlocksWithJsonArray(CUSTOM_BLOCKS);
 
   Blockly.Blocks["custom_define"] = {
     init: function () {
-      this.appendDummyInput()
-        .appendField("define")
-        .appendField(new Blockly.FieldTextInput("full movement"), "NAME");
       this.setNextStatement(true);
       this.setStyle("custom_blocks");
+      updateCustomDefinitionShape(this as Blockly.Block);
     },
     onchange: function (event: Blockly.Events.Abstract) {
       const changeEvent = event as unknown as Partial<{ type: string; blockId: string; element: string; name: string; oldValue: unknown; newValue: unknown }>;
@@ -1172,6 +1394,13 @@ function registerCustomBlocks() {
         }
       }
     },
+    saveExtraState: function () {
+      return { data: (this as Blockly.Block & { data?: string | null }).data ?? "" };
+    },
+    loadExtraState: function (state: { data?: string }) {
+      (this as Blockly.Block & { data?: string }).data = state.data ?? "";
+      updateCustomDefinitionShape(this as Blockly.Block);
+    },
   };
 
   Blockly.Blocks["custom_call"] = {
@@ -1181,7 +1410,27 @@ function registerCustomBlocks() {
         .appendField(new Blockly.FieldDropdown(customBlockMenuGenerator), "NAME");
       this.setPreviousStatement(true);
       this.setNextStatement(true);
+      this.setInputsInline(true);
       this.setStyle("custom_blocks");
+      updateCustomCallShape(this as Blockly.Block);
+    },
+    onchange: function (event: Blockly.Events.Abstract) {
+      const changeEvent = event as unknown as Partial<{ type: string; blockId: string; element: string; name: string }>;
+      if (
+        changeEvent.type === "change" &&
+        changeEvent.blockId === this.id &&
+        changeEvent.element === "field" &&
+        changeEvent.name === "NAME"
+      ) {
+        updateCustomCallShape(this as Blockly.Block);
+      }
+    },
+    saveExtraState: function () {
+      return { data: (this as Blockly.Block & { data?: string | null }).data ?? "" };
+    },
+    loadExtraState: function (state: { data?: string }) {
+      (this as Blockly.Block & { data?: string }).data = state.data ?? "";
+      updateCustomCallShape(this as Blockly.Block);
     },
   };
 
@@ -1193,6 +1442,17 @@ function registerCustomBlocks() {
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setStyle("looks_blocks");
+    },
+  };
+
+  Blockly.Blocks["event_when_backdrop"] = {
+    init: function () {
+      this.appendDummyInput()
+        .appendField("when backdrop switches to")
+        .appendField(new Blockly.FieldDropdown(backdropMenuGenerator), "BACKDROP");
+      this.setNextStatement(true);
+      this.setStyle("event_blocks");
+      this.hat = "cap";
     },
   };
 
@@ -1220,15 +1480,22 @@ function refreshCustomCallFields(workspace: Blockly.Workspace) {
     if (names.length > 0 && !names.includes(current)) {
       field.setValue(names[0]);
     }
+    updateCustomCallShape(block);
   }
 }
 
 function getCustomBlockName(block: Blockly.Block) {
+  const procedure = block as unknown as Partial<{ getProcedureDef: () => [string, string[], boolean] }>;
+  if (typeof procedure.getProcedureDef === "function") {
+    return procedure.getProcedureDef()[0];
+  }
+  const storedName = readCustomDefinitionData(block).name?.trim();
+  if (storedName) return storedName;
   return block.getField("NAME")?.getText() ?? String(block.getFieldValue("PROMPT") ?? "");
 }
 
 function isCustomDefinitionBlock(block: Blockly.Block) {
-  return block.type === "custom_define" || block.type === "ai_define";
+  return block.type === "custom_define" || block.type === "ai_define" || block.type === "procedures_defnoreturn";
 }
 
 function getSelectedCustomDefinition(workspace: Blockly.WorkspaceSvg) {
@@ -1273,6 +1540,13 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
   const [askQuestion, setAskQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
   const [askResponse, setAskResponse] = useState<AiAskResponse | null>(null);
+  const [isCustomBlockDialogOpen, setIsCustomBlockDialogOpen] = useState(false);
+  const [customBlockName, setCustomBlockName] = useState("block name");
+  const [customBlockParts, setCustomBlockParts] = useState<CustomBlockPart[]>([]);
+  const [runWithoutRefresh, setRunWithoutRefresh] = useState(false);
+  const [isVariableDialogOpen, setIsVariableDialogOpen] = useState(false);
+  const [variableName, setVariableName] = useState("score");
+  const [variableScope, setVariableScope] = useState<"sprite" | "project">("sprite");
 
   useEffect(() => {
     onWorkspaceChangeRef.current = onWorkspaceChange;
@@ -1350,6 +1624,79 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     setAskQuestion("");
     setAskResponse(null);
   }, []);
+
+  const openCustomBlockDialog = useCallback(() => {
+    setCustomBlockName("block name");
+    setCustomBlockParts([]);
+    setRunWithoutRefresh(false);
+    setIsCustomBlockDialogOpen(true);
+  }, []);
+
+  const openVariableDialog = useCallback(() => {
+    setVariableName("score");
+    setVariableScope(targetType === "stage" ? "project" : "sprite");
+    setIsVariableDialogOpen(true);
+  }, [targetType]);
+
+  const addCustomBlockArg = (kind: CustomBlockArg["kind"]) => {
+    setCustomBlockParts((curr) => {
+      const label = kind === "boolean" ? "condition" : "input";
+      const inputCount = curr.filter(isCustomInputPart).length;
+      return [...curr, { id: `arg-${Date.now()}-${curr.length}`, name: `${label}${inputCount + 1}`, kind }];
+    });
+  };
+
+  const addCustomBlockLabel = () => {
+    setCustomBlockParts((curr) => [...curr, { id: `label-${Date.now()}-${curr.length}`, kind: "label", text: "label" }]);
+  };
+
+  const updateCustomBlockPart = (id: string, value: string) => {
+    setCustomBlockParts((curr) => curr.map((part) => {
+      if (part.id !== id) return part;
+      return isCustomInputPart(part) ? { ...part, name: value } : { ...part, text: value };
+    }));
+  };
+
+  const removeCustomBlockPart = (id: string) => {
+    setCustomBlockParts((curr) => curr.filter((part) => part.id !== id));
+  };
+
+  const submitCustomBlockDialog = () => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const name = customBlockName.trim().replace(/\s+/g, " ") || "block name";
+    const seenInputNames = new Set<string>();
+    const parts: CustomBlockPart[] = [];
+    customBlockParts.forEach((part, index) => {
+      if (!isCustomInputPart(part)) {
+        const text = part.text.trim().replace(/\s+/g, " ");
+        if (text) parts.push({ ...part, text });
+        return;
+      }
+
+      const inputName = part.name.trim().replace(/\s+/g, " ") || `input${index + 1}`;
+      const key = inputName.toLowerCase();
+      if (seenInputNames.has(key)) return;
+      seenInputNames.add(key);
+      parts.push({ ...part, name: inputName });
+    });
+
+    const block = createCustomDefinition(workspace, name, parts);
+    if (block) Blockly.common.setSelected(block);
+    setIsCustomBlockDialogOpen(false);
+  };
+
+  const submitVariableDialog = () => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return;
+    const name = variableName.trim().replace(/\s+/g, " ");
+    if (!name) return;
+    const scopedName = variableScope === "sprite" && targetType === "sprite" ? `${activeSpriteNameRef.current}: ${name}` : name;
+    const existing = workspace.getVariable(scopedName);
+    if (!existing) workspace.createVariable(scopedName);
+    workspace.refreshToolboxSelection();
+    setIsVariableDialogOpen(false);
+  };
 
   const askAi = async () => {
     const workspace = workspaceRef.current;
@@ -1436,8 +1783,10 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     workspaceRef.current = workspace;
     refreshBackdropFields(workspace, backdropsRef.current);
     refreshCostumeFields(workspace, costumesRef.current);
-    registerCustomFlyout(workspace);
+    registerCustomFlyout(workspace, openCustomBlockDialog, openVariableDialog);
     loadWorkspace(workspace, initialWorkspaceStateRef.current);
+    refreshCustomDefinitionShapes(workspace);
+    refreshAllCustomCallShapes(workspace);
     let isHydratingWorkspace = true;
 
     const attachExplainContextMenus = () => {
@@ -1476,6 +1825,8 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
         saveWorkspace(workspace),
         programs.start,
         programs.cloneStart,
+        programs.broadcasts,
+        programs.backdrops,
       );
     };
 
@@ -1487,8 +1838,18 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       const customNames = getCustomBlockNames(workspace).join(",");
       if (customNames !== lastCustomBlockNames) {
         lastCustomBlockNames = customNames;
+        refreshCustomDefinitionShapes(workspace);
         refreshCustomCallFields(workspace);
         workspace.refreshToolboxSelection();
+      }
+
+      const changeEvent = event as unknown as Partial<{ type: string; blockId?: string; element?: string; name?: string }>;
+      if (
+        changeEvent.type === "create" ||
+        changeEvent.type === "move" ||
+        (changeEvent.type === "change" && changeEvent.element === "field")
+      ) {
+        refreshAllCustomCallShapes(workspace);
       }
 
       if (event.isUiEvent) return;
@@ -1513,7 +1874,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       workspace.dispose();
       workspaceRef.current = null;
     };
-  }, [explainBlock, openAskAi, targetType]);
+  }, [explainBlock, openAskAi, openCustomBlockDialog, openVariableDialog, targetType]);
 
   const generateCustomDefinition = async () => {
     const workspace = workspaceRef.current;
@@ -1553,6 +1914,8 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
         saveWorkspace(workspace),
         programs.start,
         programs.cloneStart,
+        programs.broadcasts,
+        programs.backdrops,
       );
       setAiMessage(payload.explanation ?? "Inserted generated blocks.");
     } catch (error) {
@@ -1640,6 +2003,107 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
               <p>{askResponse.answer}</p>
             </div>
           )}
+        </div>
+      )}
+      {isCustomBlockDialogOpen && (
+        <div className="custom-block-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Make a Block">
+          <div className="custom-block-dialog">
+            <div className="custom-block-dialog-header">
+              <div>
+                <h3>Make a Block</h3>
+                <span>Create a simple reusable block for this project.</span>
+              </div>
+              <button onClick={() => setIsCustomBlockDialogOpen(false)} type="button" aria-label="Close">×</button>
+            </div>
+
+            <div className="custom-block-dialog-body">
+              <label className="custom-block-name-field">
+                <span>Block name</span>
+                <input value={customBlockName} onChange={(event) => setCustomBlockName(event.target.value)} aria-label="Block name" autoFocus />
+              </label>
+
+              <div className="custom-block-preview-shell">
+                <span className="custom-block-section-label">Preview</span>
+                <div className="custom-block-preview">
+                  <span>define</span>
+                  <strong>{customBlockName.trim() || "block name"}</strong>
+                  {customBlockParts.map((part) => (
+                    <span className={`custom-block-chip custom-block-chip-${part.kind}`} key={part.id}>
+                      <input
+                        aria-label={part.kind === "label" ? "Label text" : "Input name"}
+                        style={{ "--part-length": String((isCustomInputPart(part) ? part.name : part.text).length || 4) } as React.CSSProperties}
+                        value={isCustomInputPart(part) ? part.name : part.text}
+                        onChange={(event) => updateCustomBlockPart(part.id, event.target.value)}
+                      />
+                      <button onClick={() => removeCustomBlockPart(part.id)} type="button" title="Remove part" aria-label="Remove part">×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <span className="custom-block-section-label">Add to block</span>
+              <div className="custom-block-options">
+                <button onClick={() => addCustomBlockArg("value")} type="button">
+                  <strong>123</strong>
+                  <span>Input</span>
+                  <small>number or text</small>
+                </button>
+                <button onClick={() => addCustomBlockArg("boolean")} type="button">
+                  <strong>?</strong>
+                  <span>Boolean</span>
+                  <small>true or false</small>
+                </button>
+                <button onClick={addCustomBlockLabel} type="button">
+                  <strong>abc</strong>
+                  <span>Label</span>
+                  <small>plain words</small>
+                </button>
+              </div>
+
+              <label className="custom-block-refresh-option">
+                <input checked={runWithoutRefresh} onChange={(event) => setRunWithoutRefresh(event.target.checked)} type="checkbox" />
+                Run without screen refresh
+              </label>
+            </div>
+            <div className="custom-block-dialog-actions">
+              <button onClick={() => setIsCustomBlockDialogOpen(false)} type="button">Cancel</button>
+              <button onClick={submitCustomBlockDialog} type="button">Create block</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isVariableDialogOpen && (
+        <div className="custom-block-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Make a Variable">
+          <div className="custom-block-dialog variable-dialog">
+            <div className="custom-block-dialog-header variable-dialog-header">
+              <div>
+                <h3>New Variable</h3>
+                <span>Name it, choose where it lives, then use it from Variables.</span>
+              </div>
+              <button onClick={() => setIsVariableDialogOpen(false)} type="button" aria-label="Close">×</button>
+            </div>
+            <div className="variable-dialog-body">
+              <label className="variable-name-field">
+                <span>Variable name</span>
+                <input value={variableName} onChange={(event) => setVariableName(event.target.value)} autoFocus />
+              </label>
+              <div className="variable-option-group">
+                <span>Available to</span>
+                <div>
+                  <button className={variableScope === "project" ? "variable-option-active" : ""} onClick={() => setVariableScope("project")} type="button">All sprites</button>
+                  <button className={variableScope === "sprite" ? "variable-option-active" : ""} disabled={targetType === "stage"} onClick={() => setVariableScope("sprite")} type="button">This sprite</button>
+                </div>
+              </div>
+              <div className="variable-preview">
+                <small>Creates</small>
+                <span>{variableScope === "sprite" && targetType === "sprite" ? `${activeSpriteNameRef.current}: ` : ""}{variableName.trim() || "variable"}</span>
+              </div>
+            </div>
+            <div className="custom-block-dialog-actions">
+              <button onClick={() => setIsVariableDialogOpen(false)} type="button">Cancel</button>
+              <button onClick={submitVariableDialog} type="button">Create variable</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

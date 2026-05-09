@@ -185,6 +185,9 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
       return init(block);
     case "nextBackdrop":
       return init(workspace.newBlock("looks_next_backdrop"));
+    case "broadcast":
+    case "broadcastAndWait":
+      return null;
     case "switchCostume":
       block = workspace.newBlock("looks_switch_costume");
       setField(block, "COSTUME", node.costumeId);
@@ -260,10 +263,21 @@ function createStatementStack(workspace: Blockly.Workspace, nodes: ScriptNode[])
 }
 
 export function insertAstUnderDefinition(definitionBlock: Blockly.Block, nodes: ScriptNode[]) {
+  const first = createStatementStack(definitionBlock.workspace, nodes);
+
+  if (definitionBlock.type === "procedures_defnoreturn") {
+    const connection = definitionBlock.getInput("STACK")?.connection;
+    connection?.targetBlock()?.dispose(false);
+    if (first?.previousConnection && connection) {
+      connection.connect(first.previousConnection);
+    }
+    (definitionBlock.workspace as Blockly.WorkspaceSvg).render();
+    return;
+  }
+
   const existing = definitionBlock.getNextBlock();
   existing?.dispose(false);
 
-  const first = createStatementStack(definitionBlock.workspace, nodes);
   if (first?.previousConnection && definitionBlock.nextConnection) {
     definitionBlock.nextConnection.connect(first.previousConnection);
   }

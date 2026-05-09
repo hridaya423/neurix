@@ -61,6 +61,8 @@ export type ScriptNode =
   | { type: "changeLayer"; direction: "forward" | "backward"; amount: ScriptValue }
   | { type: "switchBackdrop"; backdropId: string }
   | { type: "nextBackdrop" }
+  | { type: "broadcast"; message: string }
+  | { type: "broadcastAndWait"; message: string }
   | { type: "switchCostume"; costumeId: string }
   | { type: "nextCostume" }
   | { type: "setTone"; tone: string }
@@ -82,3 +84,5 @@ export type ScriptNode =
 export type ScriptStack = ScriptNode[];
 
 export type ScriptProgram = ScriptStack[];
+
+export type ScriptEventPrograms = Record<string, ScriptProgram>;

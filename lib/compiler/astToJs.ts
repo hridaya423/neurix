@@ -187,6 +187,10 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `api.switchBackdrop(${jsString(node.backdropId)});`)];
       case "nextBackdrop":
         return [line(depth, "api.nextBackdrop();")];
+      case "broadcast":
+        return [line(depth, `api.broadcast(${jsString(node.message)});`)];
+      case "broadcastAndWait":
+        return [line(depth, `await api.broadcastAndWait(${jsString(node.message)});`)];
       case "switchCostume":
         return [line(depth, `sprite.switchCostume(${jsString(node.costumeId)});`)];
       case "nextCostume":

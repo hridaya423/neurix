@@ -40,6 +40,7 @@ export type ScriptRuntime = {
   changeLayer: (direction: "forward" | "backward", amount: number) => void;
   switchBackdrop: (backdropId: string) => void;
   nextBackdrop: () => void;
+  broadcast: (message: string, waitForCompletion: boolean) => Promise<void>;
   switchCostume: (costumeId: string) => void;
   nextCostume: () => void;
   show: () => void;
@@ -310,6 +311,12 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "nextBackdrop":
       runtime.nextBackdrop();
+      break;
+    case "broadcast":
+      await runtime.broadcast(node.message, false);
+      break;
+    case "broadcastAndWait":
+      await runtime.broadcast(node.message, true);
       break;
     case "switchCostume":
       runtime.switchCostume(node.costumeId);

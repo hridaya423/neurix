@@ -23,6 +23,8 @@ const sprite = v.object({
   workspaceState: v.union(v.string(), v.null()),
   program: v.array(v.any()),
   cloneProgram: v.optional(v.array(v.any())),
+  broadcastPrograms: v.optional(v.any()),
+  backdropPrograms: v.optional(v.any()),
   costumes: v.optional(v.array(costume)),
   currentCostumeId: v.optional(v.string()),
 });
@@ -64,6 +66,8 @@ export default defineSchema({
       currentBackdropId: v.optional(v.string()),
       workspaceState: v.optional(v.union(v.string(), v.null())),
       program: v.optional(v.array(v.any())),
+      broadcastPrograms: v.optional(v.any()),
+      backdropPrograms: v.optional(v.any()),
     }),
     updatedAt: v.number(),
   }).index("by_projectId", ["projectId"]),

@@ -56,6 +56,7 @@ export default defineSchema({
   projectDocuments: defineTable({
     projectId: v.id("projects"),
     version: v.number(),
+    cloudVariables: v.optional(v.any()),
     stage: v.object({
       minX: v.number(),
       maxX: v.number(),

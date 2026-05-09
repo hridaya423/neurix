@@ -56,6 +56,8 @@ export type SpriteCostume = {
   rotationCenterY?: number;
 };
 
+type CloudVariables = Record<string, number | string>;
+
 export type SavedSprite = {
   id: string;
   name: string;
@@ -80,6 +82,7 @@ export type SavedSprite = {
 
 export type ProjectDocument = {
   version: number;
+  cloudVariables?: CloudVariables;
   stage: {
     minX: number;
     maxX: number;
@@ -146,6 +149,16 @@ function normalizeProgramMap(programs: unknown): ScriptEventPrograms {
 
   return Object.fromEntries(
     Object.entries(programs).map(([key, value]) => [key, normalizeProgram(value)]).filter(([, value]) => value.length > 0),
+  );
+}
+
+function normalizeCloudVariables(variables: unknown): CloudVariables {
+  if (!variables || typeof variables !== "object" || Array.isArray(variables)) return {};
+
+  return Object.fromEntries(
+    Object.entries(variables)
+      .filter(([, value]) => typeof value === "number" || typeof value === "string")
+      .map(([key, value]) => [key, value as number | string]),
   );
 }
 
@@ -441,6 +454,7 @@ export function createDefaultProjectDocument(): ProjectDocument {
 
   return {
     version: 1,
+    cloudVariables: {},
     stage: { ...stageRange, background: backdrop.fill, backdrops: [backdrop], currentBackdropId: backdrop.id, workspaceState: null, program: [] },
     sprites: initialSprites,
   };
@@ -454,6 +468,7 @@ export default function NeurixEditor({
   onSave,
 }: NeurixEditorProps) {
   const [projectName, setProjectName] = useState(initialName);
+  const [cloudVariables, setCloudVariables] = useState<CloudVariables>(() => normalizeCloudVariables(initialDocument.cloudVariables));
   const [stageState, setStageState] = useState(() => normalizeStage(initialDocument.stage));
   const [sprites, setSprites] = useState<SavedSprite[]>(() =>
     normalizeLayerOrder((initialDocument.sprites.length > 0 ? initialDocument.sprites : initialSprites).map(normalizeSprite)),
@@ -470,6 +485,7 @@ export default function NeurixEditor({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const mouseRef = useRef({ x: 0, y: 0, down: false });
   const timerStartRef = useRef(0);
+  const cloudVariablesRef = useRef(cloudVariables);
   const stageStateRef = useRef(stageState);
   const spritesRef = useRef(sprites);
   const runProgramRef = useRef<((spriteId: string, program: ScriptProgram, runId: number) => Promise<void>) | null>(null);
@@ -500,9 +516,11 @@ export default function NeurixEditor({
       : [],
     [activeSprite, activeTarget],
   );
+  const cloudVariableNames = useMemo(() => Object.keys(cloudVariables), [cloudVariables]);
 
   const projectDocument = useMemo<ProjectDocument>(() => ({
     version: 1,
+    cloudVariables,
     stage: {
       ...stageRange,
       background: currentBackdrop.fill,
@@ -531,7 +549,11 @@ export default function NeurixEditor({
       costumes: sprite.costumes ?? [defaultCostume(sprite.tone)],
       currentCostumeId: sprite.currentCostumeId,
     })),
-  }), [currentBackdrop, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.workspaceState]);
+  }), [cloudVariables, currentBackdrop, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.workspaceState]);
+
+  useEffect(() => {
+    cloudVariablesRef.current = cloudVariables;
+  }, [cloudVariables]);
 
   useEffect(() => {
     stageStateRef.current = stageState;
@@ -631,6 +653,16 @@ export default function NeurixEditor({
     },
     [],
   );
+
+  const handleCloudVariableCreate = useCallback((name: string) => {
+    if (!name.trim()) return;
+    setCloudVariables((curr) => {
+      if (Object.prototype.hasOwnProperty.call(curr, name)) return curr;
+      const next = { ...curr, [name]: 0 };
+      cloudVariablesRef.current = next;
+      return next;
+    });
+  }, []);
 
   const renderStageViewport = (variant: "panel" | "fullscreen" = "panel") => (
     <div
@@ -924,6 +956,11 @@ export default function NeurixEditor({
           const costumes = sprite.costumes && sprite.costumes.length > 0 ? sprite.costumes : [defaultCostume(sprite.tone)];
           const index = costumes.findIndex((costume) => costume.id === sprite.currentCostumeId);
           return index >= 0 ? index + 1 : 1;
+        },
+        getCloudVariable: (name) => cloudVariablesRef.current[name] ?? 0,
+        setCloudVariable: (name, value) => {
+          cloudVariablesRef.current = { ...cloudVariablesRef.current, [name]: value };
+          setCloudVariables(cloudVariablesRef.current);
         },
         touchingEdge: () => {
           const sprite = spritesRef.current.find((item) => item.id === spriteId);
@@ -1310,8 +1347,10 @@ export default function NeurixEditor({
                   targetType={activeTarget}
                   backdrops={backdropOptions}
                   costumes={costumeOptions}
+                  cloudVariableNames={cloudVariableNames}
                   workspaceState={activeTarget === "stage" ? stageState.workspaceState ?? null : activeSprite.workspaceState}
                   onWorkspaceChange={handleWorkspaceChange}
+                  onCloudVariableCreate={handleCloudVariableCreate}
                 />
               )}
               {workspaceTab === "art" && activeTarget === "stage" && (

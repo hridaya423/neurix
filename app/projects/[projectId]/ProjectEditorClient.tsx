@@ -27,6 +27,7 @@ function normalizeDocument(document: unknown): ProjectDocument {
   const value = document as ProjectDocument;
   return {
     version: value.version,
+    cloudVariables: value.cloudVariables,
     stage: value.stage,
     sprites: value.sprites,
   };

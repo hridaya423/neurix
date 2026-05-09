@@ -124,6 +124,7 @@ const backdrop = v.object({
 
 const documentArg = v.object({
   version: v.number(),
+  cloudVariables: v.optional(v.any()),
   stage: v.object({
     minX: v.number(),
     maxX: v.number(),
@@ -270,6 +271,7 @@ export const createProject = mutation({
     await ctx.db.insert("projectDocuments", {
       projectId,
       version: 1,
+      cloudVariables: {},
       stage,
       updatedAt: now,
     });
@@ -295,12 +297,14 @@ export const saveProject = mutation({
       await ctx.db.insert("projectDocuments", {
         projectId: args.projectId,
         version: args.document.version,
+        cloudVariables: args.document.cloudVariables ?? {},
         stage: args.document.stage,
         updatedAt: now,
       });
     } else {
       await ctx.db.patch(document._id, {
         version: args.document.version,
+        cloudVariables: args.document.cloudVariables ?? {},
         stage: args.document.stage,
         updatedAt: now,
       });
@@ -378,6 +382,7 @@ export const duplicateProject = mutation({
     await ctx.db.insert("projectDocuments", {
       projectId: newProjectId,
       version: document.version,
+      cloudVariables: document.cloudVariables ?? {},
       stage: document.stage,
       updatedAt: now,
     });

@@ -20,6 +20,8 @@ export type ScriptRuntime = {
   getBackdropNumber: () => number;
   getCostumeName: () => string;
   getCostumeNumber: () => number;
+  getCloudVariable: (name: string) => number | string;
+  setCloudVariable: (name: string, value: number | string) => void;
   move: (steps: number) => void;
   turn: (degrees: number) => void;
   setPosition: (x: number, y: number) => void;
@@ -49,6 +51,10 @@ export type ScriptRuntime = {
 
 type Variables = Record<string, number | string>;
 
+function isCloudVariableName(name: string) {
+  return name.startsWith("Cloud: ") || name.startsWith("☁ ");
+}
+
 function toNumber(value: number | string) {
   const number = typeof value === "number" ? value : Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -71,7 +77,7 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
     case "string":
       return value.value;
     case "variable":
-      return getVariable(variables, value.name);
+      return isCloudVariableName(value.name) ? runtime.getCloudVariable(value.name) : getVariable(variables, value.name);
     case "spriteProperty":
       if (value.property === "x") return runtime.getX();
       if (value.property === "y") return runtime.getY();
@@ -325,10 +331,18 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       runtime.nextCostume();
       break;
     case "setVariable":
-      variables[node.name] = valueOf(node.value, runtime, variables);
+      if (isCloudVariableName(node.name)) {
+        runtime.setCloudVariable(node.name, valueOf(node.value, runtime, variables));
+      } else {
+        variables[node.name] = valueOf(node.value, runtime, variables);
+      }
       break;
     case "changeVariable":
-      variables[node.name] = toNumber(getVariable(variables, node.name)) + toNumber(valueOf(node.amount, runtime, variables));
+      if (isCloudVariableName(node.name)) {
+        runtime.setCloudVariable(node.name, toNumber(runtime.getCloudVariable(node.name)) + toNumber(valueOf(node.amount, runtime, variables)));
+      } else {
+        variables[node.name] = toNumber(getVariable(variables, node.name)) + toNumber(valueOf(node.amount, runtime, variables));
+      }
       break;
     case "createClone":
       runtime.createClone();

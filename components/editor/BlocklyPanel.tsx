@@ -18,8 +18,10 @@ type BlocklyPanelProps = {
   targetType?: "sprite" | "stage";
   backdrops: { id: string; name: string }[];
   costumes?: { id: string; name: string }[];
+  cloudVariableNames?: string[];
   workspaceState: string | null;
   onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms) => void;
+  onCloudVariableCreate?: (name: string) => void;
 };
 
 type AiProcessResponse = {
@@ -57,6 +59,12 @@ type CustomDefinitionData = {
   args?: CustomBlockArg[];
   parts?: CustomBlockPart[];
 };
+
+type VariableScope = "sprite" | "project" | "cloud";
+
+function getCloudVariableName(name: string) {
+  return `☁ ${name}`;
+}
 
 const KEY_OPTIONS = [
   ["space", " "], ["enter", "Enter"], ["tab", "Tab"], ["backspace", "Backspace"], ["escape", "Escape"],
@@ -1453,6 +1461,13 @@ function variablesFlyout(workspace: Blockly.WorkspaceSvg): Blockly.utils.toolbox
   ] as Blockly.utils.toolbox.FlyoutItemInfoArray;
 }
 
+function ensureCloudVariables(workspace: Blockly.WorkspaceSvg, names: string[]) {
+  for (const name of names) {
+    if (!workspace.getVariable(name)) workspace.createVariable(name);
+  }
+  workspace.refreshToolboxSelection();
+}
+
 function createCustomDefinition(workspace: Blockly.WorkspaceSvg, name: string, parts: CustomBlockPart[]) {
   const definitionCount = workspace.getTopBlocks(false).filter((item) => isCustomDefinitionBlock(item)).length;
   const block = workspace.newBlock("custom_define") as Blockly.BlockSvg;
@@ -1637,7 +1652,7 @@ async function readTextStream(response: Response, onChunk: (text: string) => voi
   }
 }
 
-export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], workspaceState, onWorkspaceChange }: BlocklyPanelProps) {
+export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], cloudVariableNames = [], workspaceState, onWorkspaceChange, onCloudVariableCreate }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
@@ -1646,6 +1661,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
   const onWorkspaceChangeRef = useRef(onWorkspaceChange);
   const backdropsRef = useRef(backdrops);
   const costumesRef = useRef(costumes);
+  const cloudVariableNamesRef = useRef(cloudVariableNames);
   const [selectedCustomName, setSelectedCustomName] = useState<string | null>(null);
   const [selectedCustomBlockId, setSelectedCustomBlockId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1663,7 +1679,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
   const [runWithoutRefresh, setRunWithoutRefresh] = useState(false);
   const [isVariableDialogOpen, setIsVariableDialogOpen] = useState(false);
   const [variableName, setVariableName] = useState("score");
-  const [variableScope, setVariableScope] = useState<"sprite" | "project">("sprite");
+  const [variableScope, setVariableScope] = useState<VariableScope>("sprite");
 
   useEffect(() => {
     onWorkspaceChangeRef.current = onWorkspaceChange;
@@ -1686,6 +1702,12 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       workspace.refreshToolboxSelection();
     }
   }, [costumes]);
+
+  useEffect(() => {
+    cloudVariableNamesRef.current = cloudVariableNames;
+    const workspace = workspaceRef.current;
+    if (workspace) ensureCloudVariables(workspace, cloudVariableNames);
+  }, [cloudVariableNames]);
 
   useEffect(() => {
     activeSpriteNameRef.current = activeSpriteName;
@@ -1855,9 +1877,12 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     if (!workspace) return;
     const name = variableName.trim().replace(/\s+/g, " ");
     if (!name) return;
-    const scopedName = variableScope === "sprite" && targetType === "sprite" ? `${activeSpriteNameRef.current}: ${name}` : name;
+    const scopedName = variableScope === "cloud"
+      ? getCloudVariableName(name)
+      : variableScope === "sprite" && targetType === "sprite" ? `${activeSpriteNameRef.current}: ${name}` : name;
     const existing = workspace.getVariable(scopedName);
     if (!existing) workspace.createVariable(scopedName);
+    if (variableScope === "cloud") onCloudVariableCreate?.(scopedName);
     workspace.refreshToolboxSelection();
     setIsVariableDialogOpen(false);
   };
@@ -1949,6 +1974,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     refreshCostumeFields(workspace, costumesRef.current);
     registerCustomFlyout(workspace, openCustomBlockDialog, openVariableDialog);
     loadWorkspace(workspace, initialWorkspaceStateRef.current);
+    ensureCloudVariables(workspace, cloudVariableNamesRef.current);
     refreshCustomDefinitionShapes(workspace);
     refreshAllCustomCallShapes(workspace);
     let isHydratingWorkspace = true;
@@ -2281,11 +2307,12 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
                 <div>
                   <button className={variableScope === "project" ? "variable-option-active" : ""} onClick={() => setVariableScope("project")} type="button">All sprites</button>
                   <button className={variableScope === "sprite" ? "variable-option-active" : ""} disabled={targetType === "stage"} onClick={() => setVariableScope("sprite")} type="button">This sprite</button>
+                  <button className={variableScope === "cloud" ? "variable-option-active" : ""} onClick={() => setVariableScope("cloud")} type="button">Cloud</button>
                 </div>
               </div>
               <div className="variable-preview">
                 <small>Creates</small>
-                <span>{variableScope === "sprite" && targetType === "sprite" ? `${activeSpriteNameRef.current}: ` : ""}{variableName.trim() || "variable"}</span>
+                <span>{variableScope === "cloud" ? "☁ " : variableScope === "sprite" && targetType === "sprite" ? `${activeSpriteNameRef.current}: ` : ""}{variableName.trim() || "variable"}</span>
               </div>
             </div>
             <div className="custom-block-dialog-actions">

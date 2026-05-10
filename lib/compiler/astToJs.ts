@@ -55,6 +55,12 @@ function valueToJs(value: ScriptValue): string {
       return `String(${valueToJs(value.text)})[Math.max(1, Math.floor(Number(${valueToJs(value.index)}))) - 1] ?? ""`;
     case "lengthOf":
       return `String(${valueToJs(value.text)}).length`;
+    case "listItem":
+      return `(api.getList(${jsString(value.list)})[Math.max(0, Math.min(Math.floor(Number(${valueToJs(value.index)}) || 1) - 1, api.getList(${jsString(value.list)}).length - 1))] ?? "")`;
+    case "listIndex":
+      return `(api.getList(${jsString(value.list)}).findIndex((item) => String(item) === String(${valueToJs(value.item)})) + 1)`;
+    case "listLength":
+      return `api.getList(${jsString(value.list)}).length`;
   }
 }
 
@@ -84,6 +90,8 @@ function conditionToJs(condition: ScriptCondition): string {
       return `${valueToJs(condition.left)} ${condition.operator} ${valueToJs(condition.right)}`;
     case "contains":
       return `String(${valueToJs(condition.text)}).includes(String(${valueToJs(condition.search)}))`;
+    case "listContains":
+      return `api.getList(${jsString(condition.list)}).some((item) => String(item) === String(${valueToJs(condition.item)}))`;
   }
 }
 
@@ -199,6 +207,20 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `vars[${jsString(node.name)}] = ${valueToJs(node.value)};`)];
       case "changeVariable":
         return [line(depth, `vars[${jsString(node.name)}] = Number(vars[${jsString(node.name)}] ?? 0) + (Number(${valueToJs(node.amount)}) || 0);`)];
+      case "listAdd":
+        return [line(depth, `api.setList(${jsString(node.list)}, [...api.getList(${jsString(node.list)}), ${valueToJs(node.item)}]);`)];
+      case "listDelete":
+        return node.index === "all"
+          ? [line(depth, `api.setList(${jsString(node.list)}, []);`)]
+          : [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = Math.max(0, Math.min(Math.floor(Number(${valueToJs(node.index)}) || 1) - 1, list.length - 1)); api.setList(${jsString(node.list)}, list.filter((_, i) => i !== index)); }`)];
+      case "listInsert":
+        return [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = Math.max(0, Math.min(list.length, Math.floor(Number(${valueToJs(node.index)}) || 1) - 1)); api.setList(${jsString(node.list)}, [...list.slice(0, index), ${valueToJs(node.item)}, ...list.slice(index)]); }`)];
+      case "listReplace":
+        return [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = Math.max(0, Math.min(Math.floor(Number(${valueToJs(node.index)}) || 1) - 1, list.length - 1)); api.setList(${jsString(node.list)}, list.map((item, i) => i === index ? ${valueToJs(node.item)} : item)); }`)];
+      case "showList":
+        return [line(depth, `api.setListVisible?.(${jsString(node.list)}, true);`)];
+      case "hideList":
+        return [line(depth, `api.setListVisible?.(${jsString(node.list)}, false);`)];
       case "createClone":
         return [line(depth, "api.createClone();")];
       case "deleteClone":
@@ -249,6 +271,8 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `api.say(${jsString(`Custom block needs a definition: ${node.name}`)});`)];
       case "aiIntent":
         return [line(depth, `api.say(${jsString(`Custom block needs a definition: ${node.prompt}`)});`)];
+      default:
+        return [];
     }
   });
 }

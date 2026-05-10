@@ -16,7 +16,10 @@ export type ScriptValue =
   | { type: "math"; operator: "abs" | "floor" | "ceiling" | "sqrt" | "sin" | "cos" | "tan"; value: ScriptValue }
   | { type: "join"; values: ScriptValue[] }
   | { type: "letterOf"; index: ScriptValue; text: ScriptValue }
-  | { type: "lengthOf"; text: ScriptValue };
+  | { type: "lengthOf"; text: ScriptValue }
+  | { type: "listItem"; list: string; index: ScriptValue }
+  | { type: "listIndex"; list: string; item: ScriptValue }
+  | { type: "listLength"; list: string };
 
 export type ScriptCondition =
   | { type: "keyPressed"; key: KeyName }
@@ -28,7 +31,8 @@ export type ScriptCondition =
   | { type: "and"; left: ScriptCondition; right: ScriptCondition }
   | { type: "or"; left: ScriptCondition; right: ScriptCondition }
   | { type: "compare"; left: ScriptValue; operator: "=" | "<" | ">" | "≤" | "≥" | "≠"; right: ScriptValue }
-  | { type: "contains"; text: ScriptValue; search: ScriptValue };
+  | { type: "contains"; text: ScriptValue; search: ScriptValue }
+  | { type: "listContains"; list: string; item: ScriptValue };
 
 export type ScriptNode =
   | { type: "move"; steps: ScriptValue }
@@ -69,6 +73,12 @@ export type ScriptNode =
   | { type: "changeTone"; amount: ScriptValue }
   | { type: "setVariable"; name: string; value: ScriptValue }
   | { type: "changeVariable"; name: string; amount: ScriptValue }
+  | { type: "listAdd"; list: string; item: ScriptValue }
+  | { type: "listDelete"; list: string; index: ScriptValue | "all" }
+  | { type: "listInsert"; list: string; index: ScriptValue; item: ScriptValue }
+  | { type: "listReplace"; list: string; index: ScriptValue; item: ScriptValue }
+  | { type: "showList"; list: string }
+  | { type: "hideList"; list: string }
   | { type: "createClone" }
   | { type: "deleteClone" }
   | { type: "wait"; seconds: ScriptValue }

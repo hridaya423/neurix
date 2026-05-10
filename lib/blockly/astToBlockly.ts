@@ -72,6 +72,7 @@ function createConditionBlock(workspace: Blockly.Workspace, condition: ScriptCon
     }
     case "boolean":
     case "contains":
+    case "listContains":
       return createConditionBlock(workspace, { type: "compare", left: 1, operator: "=", right: 1 });
   }
 }
@@ -197,6 +198,30 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
     case "setVariable":
     case "changeVariable":
       return null;
+    case "listAdd":
+      block = workspace.newBlock("list_add");
+      setField(block, "LIST", node.list);
+      return init(block);
+    case "listDelete":
+      block = workspace.newBlock(node.index === "all" ? "list_delete_all" : "list_delete");
+      setField(block, "LIST", node.list);
+      return init(block);
+    case "listInsert":
+      block = workspace.newBlock("list_insert");
+      setField(block, "LIST", node.list);
+      return init(block);
+    case "listReplace":
+      block = workspace.newBlock("list_replace");
+      setField(block, "LIST", node.list);
+      return init(block);
+    case "showList":
+      block = workspace.newBlock("list_show");
+      setField(block, "LIST", node.list);
+      return init(block);
+    case "hideList":
+      block = workspace.newBlock("list_hide");
+      setField(block, "LIST", node.list);
+      return init(block);
     case "wait":
       block = workspace.newBlock("control_wait");
       setField(block, "SECONDS", primitive(node.seconds, 1));

@@ -28,6 +28,10 @@ function normalizeDocument(document: unknown): ProjectDocument {
   return {
     version: value.version,
     cloudVariables: value.cloudVariables,
+    variables: value.variables,
+    lists: value.lists,
+    variableWatchers: value.variableWatchers,
+    listWatchers: value.listWatchers,
     stage: value.stage,
     sprites: value.sprites,
   };

@@ -19,6 +19,8 @@ type SavedSprite = {
   cloneProgram?: unknown[];
   broadcastPrograms?: unknown;
   backdropPrograms?: unknown;
+  variables?: unknown;
+  lists?: unknown;
   costumes?: SpriteCostume[];
   currentCostumeId?: string;
 };
@@ -83,6 +85,19 @@ const initialSprites: SavedSprite[] = [
   initialSprite({ id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [] }),
 ];
 
+const maxCloudValue = 999_999_999;
+
+function sanitizeCloudValue(value: unknown) {
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(-maxCloudValue, Math.min(maxCloudValue, Math.round(number * 1000) / 1000));
+}
+
+function sanitizeCloudVariables(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeCloudValue(entry)]));
+}
+
 const costume = v.object({
   id: v.string(),
   name: v.string(),
@@ -107,6 +122,8 @@ const sprite = v.object({
   cloneProgram: v.optional(v.array(v.any())),
   broadcastPrograms: v.optional(v.any()),
   backdropPrograms: v.optional(v.any()),
+  variables: v.optional(v.any()),
+  lists: v.optional(v.any()),
   costumes: v.optional(v.array(costume)),
   currentCostumeId: v.optional(v.string()),
 });
@@ -125,6 +142,10 @@ const backdrop = v.object({
 const documentArg = v.object({
   version: v.number(),
   cloudVariables: v.optional(v.any()),
+  variables: v.optional(v.any()),
+  lists: v.optional(v.any()),
+  variableWatchers: v.optional(v.any()),
+  listWatchers: v.optional(v.any()),
   stage: v.object({
     minX: v.number(),
     maxX: v.number(),
@@ -272,6 +293,10 @@ export const createProject = mutation({
       projectId,
       version: 1,
       cloudVariables: {},
+      variables: {},
+      lists: {},
+      variableWatchers: [],
+      listWatchers: [],
       stage,
       updatedAt: now,
     });
@@ -297,14 +322,22 @@ export const saveProject = mutation({
       await ctx.db.insert("projectDocuments", {
         projectId: args.projectId,
         version: args.document.version,
-        cloudVariables: args.document.cloudVariables ?? {},
+        cloudVariables: sanitizeCloudVariables(args.document.cloudVariables),
+        variables: args.document.variables ?? {},
+        lists: args.document.lists ?? {},
+        variableWatchers: args.document.variableWatchers ?? [],
+        listWatchers: args.document.listWatchers ?? [],
         stage: args.document.stage,
         updatedAt: now,
       });
     } else {
       await ctx.db.patch(document._id, {
         version: args.document.version,
-        cloudVariables: args.document.cloudVariables ?? {},
+        cloudVariables: sanitizeCloudVariables(args.document.cloudVariables),
+        variables: args.document.variables ?? {},
+        lists: args.document.lists ?? {},
+        variableWatchers: args.document.variableWatchers ?? [],
+        listWatchers: args.document.listWatchers ?? [],
         stage: args.document.stage,
         updatedAt: now,
       });
@@ -383,6 +416,10 @@ export const duplicateProject = mutation({
       projectId: newProjectId,
       version: document.version,
       cloudVariables: document.cloudVariables ?? {},
+      variables: document.variables ?? {},
+      lists: document.lists ?? {},
+      variableWatchers: document.variableWatchers ?? [],
+      listWatchers: document.listWatchers ?? [],
       stage: document.stage,
       updatedAt: now,
     });

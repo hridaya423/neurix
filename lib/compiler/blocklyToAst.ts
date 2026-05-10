@@ -1,9 +1,11 @@
 import * as Blockly from "blockly/core";
 import type { KeyName, ScriptCondition, ScriptEventPrograms, ScriptNode, ScriptProgram, ScriptValue } from "@/lib/compiler/types";
 
-type CustomDefinition = { start: Blockly.Block | null; args: string[] };
+type CustomDefinitionArg = { name: string; kind: "value" | "boolean" };
+type CustomDefinition = { start: Blockly.Block | null; args: CustomDefinitionArg[] };
 type CustomDefinitions = Map<string, CustomDefinition>;
 type ValueBindings = Map<string, ScriptValue>;
+type ConditionBindings = Map<string, ScriptCondition>;
 
 const maxDefinitionDepth = 8;
 
@@ -37,18 +39,21 @@ function getMessageField(block: Blockly.Block) {
   return String(block.getFieldValue("MESSAGE") ?? "message1").trim() || "message1";
 }
 
-function getCustomDefinitionArgs(block: Blockly.Block, fallbackArgs: string[]) {
+function getCustomDefinitionArgs(block: Blockly.Block, fallbackArgs: string[]): CustomDefinitionArg[] {
   try {
     const data = (block as Blockly.Block & { data?: string | null }).data;
-    const parsed = data ? JSON.parse(data) as { args?: { name?: string }[] } : null;
+    const parsed = data ? JSON.parse(data) as { args?: { name?: string; kind?: string }[] } : null;
     if (Array.isArray(parsed?.args)) {
       const names = fallbackArgs.length > 0 ? fallbackArgs : parsed.args.map((arg, index) => String(arg.name ?? `input${index + 1}`));
-      return names.map((name, index) => String(parsed.args?.[index]?.name ?? name));
+      return names.map((name, index) => ({
+        name: String(parsed.args?.[index]?.name ?? name),
+        kind: parsed.args?.[index]?.kind === "boolean" ? "boolean" : "value",
+      }));
     }
   } catch {
   }
 
-  return fallbackArgs;
+  return fallbackArgs.map((name) => ({ name, kind: "value" }));
 }
 
 function getVariableName(block: Blockly.Block, fieldName = "VAR") {
@@ -68,6 +73,14 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
     case "variables_get_dynamic": {
       const name = getVariableName(block);
       return bindings.get(name) ?? { type: "variable", name };
+    }
+    case "variable_watcher_toggle": {
+      const name = getVariableName(block, "NAME").trim();
+      return name ? bindings.get(name) ?? { type: "variable", name } : fallback;
+    }
+    case "custom_arg_value": {
+      const name = getVariableName(block, "NAME").trim();
+      return name ? bindings.get(name) ?? fallback : fallback;
     }
     case "motion_x_position":
       return { type: "spriteProperty", property: "x" };
@@ -152,6 +165,12 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
         text: parseValue(block.getInputTargetBlock("VALUE"), "", bindings),
         index: parseValue(block.getInputTargetBlock("AT"), 1, bindings),
       };
+    case "list_item":
+      return { type: "listItem", list: String(block.getFieldValue("LIST") ?? "list"), index: parseValue(block.getInputTargetBlock("INDEX"), 1, bindings) };
+    case "list_index":
+      return { type: "listIndex", list: String(block.getFieldValue("LIST") ?? "list"), item: parseValue(block.getInputTargetBlock("ITEM"), "", bindings) };
+    case "list_length":
+      return { type: "listLength", list: String(block.getFieldValue("LIST") ?? "list") };
     default:
       return fallback;
   }
@@ -165,10 +184,14 @@ function defaultCondition(): ScriptCondition {
   return { type: "compare", left: 1, operator: "=", right: 1 };
 }
 
-function parseCondition(block: Blockly.Block | null, bindings: ValueBindings = new Map()): ScriptCondition {
+function parseCondition(block: Blockly.Block | null, bindings: ValueBindings = new Map(), conditionBindings: ConditionBindings = new Map()): ScriptCondition {
   if (!block) return defaultCondition();
 
   switch (block.type) {
+    case "custom_arg_boolean": {
+      const name = getVariableName(block, "NAME").trim();
+      return name ? conditionBindings.get(name) ?? defaultCondition() : defaultCondition();
+    }
     case "sensing_key_pressed":
       return { type: "keyPressed", key: String(block.getFieldValue("KEY")) as KeyName };
     case "sensing_touching_edge":
@@ -191,10 +214,10 @@ function parseCondition(block: Blockly.Block | null, bindings: ValueBindings = n
     }
     case "logic_operation":
       return String(block.getFieldValue("OP")) === "OR"
-        ? { type: "or", left: parseCondition(block.getInputTargetBlock("A"), bindings), right: parseCondition(block.getInputTargetBlock("B"), bindings) }
-        : { type: "and", left: parseCondition(block.getInputTargetBlock("A"), bindings), right: parseCondition(block.getInputTargetBlock("B"), bindings) };
+        ? { type: "or", left: parseCondition(block.getInputTargetBlock("A"), bindings, conditionBindings), right: parseCondition(block.getInputTargetBlock("B"), bindings, conditionBindings) }
+        : { type: "and", left: parseCondition(block.getInputTargetBlock("A"), bindings, conditionBindings), right: parseCondition(block.getInputTargetBlock("B"), bindings, conditionBindings) };
     case "logic_negate":
-      return { type: "not", condition: parseCondition(block.getInputTargetBlock("BOOL"), bindings) };
+      return { type: "not", condition: parseCondition(block.getInputTargetBlock("BOOL"), bindings, conditionBindings) };
     case "operator_contains":
       return {
         type: "contains",
@@ -218,23 +241,25 @@ function parseCondition(block: Blockly.Block | null, bindings: ValueBindings = n
     case "operator_and":
       return {
         type: "and",
-        left: parseCondition(block.getInputTargetBlock("LEFT"), bindings),
-        right: parseCondition(block.getInputTargetBlock("RIGHT"), bindings),
+        left: parseCondition(block.getInputTargetBlock("LEFT"), bindings, conditionBindings),
+        right: parseCondition(block.getInputTargetBlock("RIGHT"), bindings, conditionBindings),
       };
     case "operator_or":
       return {
         type: "or",
-        left: parseCondition(block.getInputTargetBlock("LEFT"), bindings),
-        right: parseCondition(block.getInputTargetBlock("RIGHT"), bindings),
+        left: parseCondition(block.getInputTargetBlock("LEFT"), bindings, conditionBindings),
+        right: parseCondition(block.getInputTargetBlock("RIGHT"), bindings, conditionBindings),
       };
     case "operator_not":
-      return { type: "not", condition: parseCondition(block.getInputTargetBlock("COND"), bindings) };
+      return { type: "not", condition: parseCondition(block.getInputTargetBlock("COND"), bindings, conditionBindings) };
+    case "list_contains":
+      return { type: "listContains", list: String(block.getFieldValue("LIST") ?? "list"), item: parseValue(block.getInputTargetBlock("ITEM"), "", bindings) };
     default:
       return defaultCondition();
   }
 }
 
-function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinitions, depth = 0, bindings: ValueBindings = new Map()): ScriptNode[] {
+function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinitions, depth = 0, bindings: ValueBindings = new Map(), conditionBindings: ConditionBindings = new Map()): ScriptNode[] {
   const program: ScriptNode[] = [];
   let block = startBlock;
 
@@ -407,6 +432,27 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
       case "math_change":
         program.push({ type: "changeVariable", name: getVariableName(block), amount: getValueInput(block, "DELTA", 1, bindings) });
         break;
+      case "list_add":
+        program.push({ type: "listAdd", list: String(block.getFieldValue("LIST") ?? "list"), item: getValueInput(block, "ITEM", "", bindings) });
+        break;
+      case "list_delete":
+        program.push({ type: "listDelete", list: String(block.getFieldValue("LIST") ?? "list"), index: getValueInput(block, "INDEX", 1, bindings) });
+        break;
+      case "list_delete_all":
+        program.push({ type: "listDelete", list: String(block.getFieldValue("LIST") ?? "list"), index: "all" });
+        break;
+      case "list_insert":
+        program.push({ type: "listInsert", list: String(block.getFieldValue("LIST") ?? "list"), index: getValueInput(block, "INDEX", 1, bindings), item: getValueInput(block, "ITEM", "", bindings) });
+        break;
+      case "list_replace":
+        program.push({ type: "listReplace", list: String(block.getFieldValue("LIST") ?? "list"), index: getValueInput(block, "INDEX", 1, bindings), item: getValueInput(block, "ITEM", "", bindings) });
+        break;
+      case "list_show":
+        program.push({ type: "showList", list: String(block.getFieldValue("LIST") ?? "list") });
+        break;
+      case "list_hide":
+        program.push({ type: "hideList", list: String(block.getFieldValue("LIST") ?? "list") });
+        break;
       case "control_create_clone":
         program.push({ type: "createClone" });
         break;
@@ -423,74 +469,86 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
         program.push({
           type: "repeat",
           times: Math.max(1, Math.floor(getNumberField(block, "TIMES"))),
-          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth),
+          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings, conditionBindings),
         });
         break;
       case "control_repeat_value":
         program.push({
           type: "repeat",
           times: getValueInput(block, "TIMES", 3, bindings),
-          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings),
+          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings, conditionBindings),
         });
         break;
       case "control_repeat_until":
         program.push({
           type: "repeatUntil",
-          condition: parseCondition(block.getInputTargetBlock("COND"), bindings),
-          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings),
+          condition: parseCondition(block.getInputTargetBlock("COND"), bindings, conditionBindings),
+          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings, conditionBindings),
         });
         break;
       case "control_wait_until":
-        program.push({ type: "waitUntil", condition: parseCondition(block.getInputTargetBlock("COND"), bindings) });
+        program.push({ type: "waitUntil", condition: parseCondition(block.getInputTargetBlock("COND"), bindings, conditionBindings) });
         break;
       case "control_forever":
         program.push({
           type: "forever",
-          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings),
+          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings, conditionBindings),
         });
         break;
       case "control_if":
         program.push({
           type: "if",
-          condition: parseCondition(block.getInputTargetBlock("COND"), bindings),
-          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings),
+          condition: parseCondition(block.getInputTargetBlock("COND"), bindings, conditionBindings),
+          body: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings, conditionBindings),
         });
         break;
       case "control_if_else":
         program.push({
           type: "ifElse",
-          condition: parseCondition(block.getInputTargetBlock("COND"), bindings),
-          thenBody: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings),
-          elseBody: parseStack(block.getInputTargetBlock("ELSE"), definitions, depth, bindings),
+          condition: parseCondition(block.getInputTargetBlock("COND"), bindings, conditionBindings),
+          thenBody: parseStack(block.getInputTargetBlock("DO"), definitions, depth, bindings, conditionBindings),
+          elseBody: parseStack(block.getInputTargetBlock("ELSE"), definitions, depth, bindings, conditionBindings),
         });
         break;
       case "custom_call":
       case "ai_use": {
+        const currentBlock = block;
         const name = getCustomBlockName(block);
         const definition = definitions.get(normalizeCustomName(name));
 
         if (definition && depth < maxDefinitionDepth) {
           const nextBindings = new Map(bindings);
+          const nextConditionBindings = new Map(conditionBindings);
           definition.args.forEach((arg, index) => {
-            nextBindings.set(arg, getValueInput(block as Blockly.Block, `ARG${index}`, 0, bindings));
+            if (arg.kind === "boolean") {
+              nextConditionBindings.set(arg.name, parseCondition(currentBlock.getInputTargetBlock(`ARG${index}`), bindings, conditionBindings));
+            } else {
+              nextBindings.set(arg.name, getValueInput(currentBlock, `ARG${index}`, 0, bindings));
+            }
           });
-          program.push(...parseStack(definition.start, definitions, depth + 1, nextBindings));
+          program.push(...parseStack(definition.start, definitions, depth + 1, nextBindings, nextConditionBindings));
         } else {
           program.push({ type: "customCall", name });
         }
         break;
       }
       case "procedures_callnoreturn": {
+        const currentBlock = block;
         const procedure = block as unknown as { getProcedureCall?: () => string; arguments_?: string[] };
         const name = procedure.getProcedureCall?.() ?? getCustomBlockName(block);
         const definition = definitions.get(normalizeCustomName(name));
 
         if (definition && depth < maxDefinitionDepth) {
           const nextBindings = new Map(bindings);
+          const nextConditionBindings = new Map(conditionBindings);
           definition.args.forEach((arg, index) => {
-            nextBindings.set(arg, getValueInput(block as Blockly.Block, `ARG${index}`, 0, bindings));
+            if (arg.kind === "boolean") {
+              nextConditionBindings.set(arg.name, parseCondition(currentBlock.getInputTargetBlock(`ARG${index}`), bindings, conditionBindings));
+            } else {
+              nextBindings.set(arg.name, getValueInput(currentBlock, `ARG${index}`, 0, bindings));
+            }
           });
-          program.push(...parseStack(definition.start, definitions, depth + 1, nextBindings));
+          program.push(...parseStack(definition.start, definitions, depth + 1, nextBindings, nextConditionBindings));
         } else {
           program.push({ type: "customCall", name });
         }

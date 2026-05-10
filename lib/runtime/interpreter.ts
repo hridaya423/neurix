@@ -20,8 +20,13 @@ export type ScriptRuntime = {
   getBackdropNumber: () => number;
   getCostumeName: () => string;
   getCostumeNumber: () => number;
+  getVariable: (name: string) => number | string;
+  setVariable: (name: string, value: number | string) => void;
   getCloudVariable: (name: string) => number | string;
   setCloudVariable: (name: string, value: number | string) => void;
+  getList: (name: string) => Array<number | string>;
+  setList: (name: string, values: Array<number | string>) => void;
+  setListVisible?: (name: string, visible: boolean) => void;
   move: (steps: number) => void;
   turn: (degrees: number) => void;
   setPosition: (x: number, y: number) => void;
@@ -51,8 +56,16 @@ export type ScriptRuntime = {
 
 type Variables = Record<string, number | string>;
 
+const maxCloudValue = 999_999_999;
+
 function isCloudVariableName(name: string) {
   return name.startsWith("Cloud: ") || name.startsWith("☁ ");
+}
+
+function clampCloudValue(value: number | string) {
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(-maxCloudValue, Math.min(maxCloudValue, Math.round(number * 1000) / 1000));
 }
 
 function toNumber(value: number | string) {
@@ -68,6 +81,10 @@ function getVariable(variables: Variables, name: string) {
   return variables[name] ?? 0;
 }
 
+function listIndex(value: number | string, length: number) {
+  return Math.max(0, Math.min(length - 1, Math.floor(toNumber(value)) - 1));
+}
+
 function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variables): number | string {
   if (typeof value === "number" || typeof value === "string") return value;
 
@@ -77,7 +94,8 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
     case "string":
       return value.value;
     case "variable":
-      return isCloudVariableName(value.name) ? runtime.getCloudVariable(value.name) : getVariable(variables, value.name);
+      if (isCloudVariableName(value.name)) return runtime.getCloudVariable(value.name);
+      return runtime.getVariable(value.name) ?? getVariable(variables, value.name);
     case "spriteProperty":
       if (value.property === "x") return runtime.getX();
       if (value.property === "y") return runtime.getY();
@@ -134,6 +152,17 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
     }
     case "lengthOf":
       return toText(valueOf(value.text, runtime, variables)).length;
+    case "listItem": {
+      const list = runtime.getList(value.list);
+      return list[listIndex(valueOf(value.index, runtime, variables), list.length)] ?? "";
+    }
+    case "listIndex": {
+      const item = toText(valueOf(value.item, runtime, variables));
+      const index = runtime.getList(value.list).findIndex((entry) => toText(entry) === item);
+      return index >= 0 ? index + 1 : 0;
+    }
+    case "listLength":
+      return runtime.getList(value.list).length;
   }
 }
 
@@ -169,6 +198,10 @@ function isConditionTrue(condition: ScriptCondition, runtime: ScriptRuntime, var
     }
     case "contains":
       return toText(valueOf(condition.text, runtime, variables)).includes(toText(valueOf(condition.search, runtime, variables)));
+    case "listContains": {
+      const item = toText(valueOf(condition.item, runtime, variables));
+      return runtime.getList(condition.list).some((entry) => toText(entry) === item);
+    }
   }
 }
 
@@ -332,17 +365,47 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "setVariable":
       if (isCloudVariableName(node.name)) {
-        runtime.setCloudVariable(node.name, valueOf(node.value, runtime, variables));
+        runtime.setCloudVariable(node.name, clampCloudValue(valueOf(node.value, runtime, variables)));
       } else {
-        variables[node.name] = valueOf(node.value, runtime, variables);
+        runtime.setVariable(node.name, valueOf(node.value, runtime, variables));
       }
       break;
     case "changeVariable":
       if (isCloudVariableName(node.name)) {
-        runtime.setCloudVariable(node.name, toNumber(runtime.getCloudVariable(node.name)) + toNumber(valueOf(node.amount, runtime, variables)));
+        runtime.setCloudVariable(node.name, clampCloudValue(toNumber(runtime.getCloudVariable(node.name)) + toNumber(valueOf(node.amount, runtime, variables))));
       } else {
-        variables[node.name] = toNumber(getVariable(variables, node.name)) + toNumber(valueOf(node.amount, runtime, variables));
+        runtime.setVariable(node.name, toNumber(runtime.getVariable(node.name)) + toNumber(valueOf(node.amount, runtime, variables)));
       }
+      break;
+    case "listAdd":
+      runtime.setList(node.list, [...runtime.getList(node.list), valueOf(node.item, runtime, variables)]);
+      break;
+    case "listDelete":
+      if (node.index === "all") {
+        runtime.setList(node.list, []);
+      } else {
+        const list = runtime.getList(node.list);
+        const index = listIndex(valueOf(node.index, runtime, variables), list.length);
+        runtime.setList(node.list, list.filter((_, itemIndex) => itemIndex !== index));
+      }
+      break;
+    case "listInsert": {
+      const list = runtime.getList(node.list);
+      const index = Math.max(0, Math.min(list.length, Math.floor(toNumber(valueOf(node.index, runtime, variables))) - 1));
+      runtime.setList(node.list, [...list.slice(0, index), valueOf(node.item, runtime, variables), ...list.slice(index)]);
+      break;
+    }
+    case "listReplace": {
+      const list = runtime.getList(node.list);
+      const index = listIndex(valueOf(node.index, runtime, variables), list.length);
+      runtime.setList(node.list, list.map((item, itemIndex) => itemIndex === index ? valueOf(node.item, runtime, variables) : item));
+      break;
+    }
+    case "showList":
+      runtime.setListVisible?.(node.list, true);
+      break;
+    case "hideList":
+      runtime.setListVisible?.(node.list, false);
       break;
     case "createClone":
       runtime.createClone();

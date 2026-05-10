@@ -25,6 +25,8 @@ const sprite = v.object({
   cloneProgram: v.optional(v.array(v.any())),
   broadcastPrograms: v.optional(v.any()),
   backdropPrograms: v.optional(v.any()),
+  variables: v.optional(v.any()),
+  lists: v.optional(v.any()),
   costumes: v.optional(v.array(costume)),
   currentCostumeId: v.optional(v.string()),
 });
@@ -57,6 +59,10 @@ export default defineSchema({
     projectId: v.id("projects"),
     version: v.number(),
     cloudVariables: v.optional(v.any()),
+    variables: v.optional(v.any()),
+    lists: v.optional(v.any()),
+    variableWatchers: v.optional(v.any()),
+    listWatchers: v.optional(v.any()),
     stage: v.object({
       minX: v.number(),
       maxX: v.number(),

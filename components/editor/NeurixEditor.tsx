@@ -56,7 +56,36 @@ export type SpriteCostume = {
   rotationCenterY?: number;
 };
 
-type CloudVariables = Record<string, number | string>;
+type RuntimeValue = number | string;
+type CloudVariables = Record<string, number>;
+type RuntimeValues = Record<string, RuntimeValue>;
+type WatcherDragState = {
+  id: string;
+  kind: "variable" | "list";
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+  isDragging: boolean;
+};
+
+export type VariableWatcher = {
+  id: string;
+  name: string;
+  visible: boolean;
+  mode?: "normal" | "large" | "slider";
+  x: number;
+  y: number;
+};
+
+export type ListWatcher = {
+  id: string;
+  name: string;
+  visible: boolean;
+  x: number;
+  y: number;
+};
 
 export type SavedSprite = {
   id: string;
@@ -73,6 +102,8 @@ export type SavedSprite = {
   cloneProgram?: ScriptProgram;
   broadcastPrograms?: ScriptEventPrograms;
   backdropPrograms?: ScriptEventPrograms;
+  variables?: RuntimeValues;
+  lists?: Record<string, RuntimeValue[]>;
   costumes?: SpriteCostume[];
   currentCostumeId?: string;
   sayText?: string;
@@ -83,6 +114,10 @@ export type SavedSprite = {
 export type ProjectDocument = {
   version: number;
   cloudVariables?: CloudVariables;
+  variables?: RuntimeValues;
+  lists?: Record<string, RuntimeValue[]>;
+  variableWatchers?: VariableWatcher[];
+  listWatchers?: ListWatcher[];
   stage: {
     minX: number;
     maxX: number;
@@ -152,14 +187,73 @@ function normalizeProgramMap(programs: unknown): ScriptEventPrograms {
   );
 }
 
+const maxCloudValue = 999_999_999;
+
+function sanitizeCloudValue(value: unknown) {
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(-maxCloudValue, Math.min(maxCloudValue, Math.round(number * 1000) / 1000));
+}
+
 function normalizeCloudVariables(variables: unknown): CloudVariables {
   if (!variables || typeof variables !== "object" || Array.isArray(variables)) return {};
 
   return Object.fromEntries(
     Object.entries(variables)
       .filter(([, value]) => typeof value === "number" || typeof value === "string")
-      .map(([key, value]) => [key, value as number | string]),
+      .map(([key, value]) => [key, sanitizeCloudValue(value)]),
   );
+}
+
+function normalizeRuntimeValues(values: unknown): RuntimeValues {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return {};
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => typeof value === "number" || typeof value === "string") as [string, RuntimeValue][],
+  );
+}
+
+function normalizeLists(lists: unknown): Record<string, RuntimeValue[]> {
+  if (!lists || typeof lists !== "object" || Array.isArray(lists)) return {};
+  return Object.fromEntries(
+    Object.entries(lists).flatMap(([key, value]) => Array.isArray(value)
+      ? [[key, value.filter((item): item is RuntimeValue => typeof item === "number" || typeof item === "string")]]
+      : []),
+  );
+}
+
+function normalizeWatchers(watchers: unknown): VariableWatcher[] {
+  if (!Array.isArray(watchers)) return [];
+  return watchers.flatMap((watcher, index) => {
+    if (!watcher || typeof watcher !== "object") return [];
+    const item = watcher as Partial<VariableWatcher>;
+    const name = String(item.name ?? "").trim();
+    if (!name) return [];
+    return [{
+      id: String(item.id ?? `watcher-${index}-${name}`),
+      name,
+      visible: item.visible !== false,
+      mode: item.mode === "large" || item.mode === "slider" ? item.mode : "normal",
+      x: typeof item.x === "number" ? clamp(item.x, 0, 92) : 4,
+      y: typeof item.y === "number" ? clamp(item.y, 0, 92) : 4 + index * 8,
+    }];
+  });
+}
+
+function normalizeListWatchers(watchers: unknown): ListWatcher[] {
+  if (!Array.isArray(watchers)) return [];
+  return watchers.flatMap((watcher, index) => {
+    if (!watcher || typeof watcher !== "object") return [];
+    const item = watcher as Partial<ListWatcher>;
+    const name = String(item.name ?? "").trim();
+    if (!name) return [];
+    return [{
+      id: String(item.id ?? `list-watcher-${index}-${name}`),
+      name,
+      visible: item.visible !== false,
+      x: typeof item.x === "number" ? clamp(item.x, 0, 84) : 4,
+      y: typeof item.y === "number" ? clamp(item.y, 0, 76) : 14 + index * 10,
+    }];
+  });
 }
 
 function normalizeSprite(sprite: SavedSprite, index = 0): SavedSprite {
@@ -184,6 +278,8 @@ function normalizeSprite(sprite: SavedSprite, index = 0): SavedSprite {
     cloneProgram: normalizeProgram(sprite.cloneProgram),
     broadcastPrograms: normalizeProgramMap(sprite.broadcastPrograms),
     backdropPrograms: normalizeProgramMap(sprite.backdropPrograms),
+    variables: normalizeRuntimeValues(sprite.variables),
+    lists: normalizeLists(sprite.lists),
     costumes,
     currentCostumeId,
   };
@@ -455,6 +551,10 @@ export function createDefaultProjectDocument(): ProjectDocument {
   return {
     version: 1,
     cloudVariables: {},
+    variables: {},
+    lists: {},
+    variableWatchers: [],
+    listWatchers: [],
     stage: { ...stageRange, background: backdrop.fill, backdrops: [backdrop], currentBackdropId: backdrop.id, workspaceState: null, program: [] },
     sprites: initialSprites,
   };
@@ -469,6 +569,10 @@ export default function NeurixEditor({
 }: NeurixEditorProps) {
   const [projectName, setProjectName] = useState(initialName);
   const [cloudVariables, setCloudVariables] = useState<CloudVariables>(() => normalizeCloudVariables(initialDocument.cloudVariables));
+  const [projectVariables, setProjectVariables] = useState<RuntimeValues>(() => normalizeRuntimeValues(initialDocument.variables));
+  const [projectLists, setProjectLists] = useState<Record<string, RuntimeValue[]>>(() => normalizeLists(initialDocument.lists));
+  const [variableWatchers, setVariableWatchers] = useState<VariableWatcher[]>(() => normalizeWatchers(initialDocument.variableWatchers));
+  const [listWatchers, setListWatchers] = useState<ListWatcher[]>(() => normalizeListWatchers(initialDocument.listWatchers));
   const [stageState, setStageState] = useState(() => normalizeStage(initialDocument.stage));
   const [sprites, setSprites] = useState<SavedSprite[]>(() =>
     normalizeLayerOrder((initialDocument.sprites.length > 0 ? initialDocument.sprites : initialSprites).map(normalizeSprite)),
@@ -478,14 +582,18 @@ export default function NeurixEditor({
   const [isRunning, setIsRunning] = useState(false);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("scripts");
   const [isStageFullscreen, setIsStageFullscreen] = useState(false);
+  const [watcherMenu, setWatcherMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const runIdRef = useRef(0);
   const deletedCloneIdsRef = useRef(new Set<string>());
   const pressedKeysRef = useRef(new Set<string>());
   const lastKeyRef = useRef("");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const mouseRef = useRef({ x: 0, y: 0, down: false });
+  const watcherDragRef = useRef<WatcherDragState | null>(null);
   const timerStartRef = useRef(0);
   const cloudVariablesRef = useRef(cloudVariables);
+  const projectVariablesRef = useRef(projectVariables);
+  const projectListsRef = useRef(projectLists);
   const stageStateRef = useRef(stageState);
   const spritesRef = useRef(sprites);
   const runProgramRef = useRef<((spriteId: string, program: ScriptProgram, runId: number) => Promise<void>) | null>(null);
@@ -517,10 +625,28 @@ export default function NeurixEditor({
     [activeSprite, activeTarget],
   );
   const cloudVariableNames = useMemo(() => Object.keys(cloudVariables), [cloudVariables]);
+  const variableNames = useMemo(() => {
+    const names = new Set(Object.keys(projectVariables));
+    if (activeTarget === "sprite" && activeSprite) {
+      for (const name of Object.keys(activeSprite.variables ?? {})) names.add(name);
+    }
+    return [...names].sort();
+  }, [activeSprite, activeTarget, projectVariables]);
+  const listNames = useMemo(() => {
+    const names = new Set(Object.keys(projectLists));
+    if (activeTarget === "sprite" && activeSprite) {
+      for (const name of Object.keys(activeSprite.lists ?? {})) names.add(name);
+    }
+    return [...names].sort();
+  }, [activeSprite, activeTarget, projectLists]);
 
   const projectDocument = useMemo<ProjectDocument>(() => ({
     version: 1,
     cloudVariables,
+    variables: projectVariables,
+    lists: projectLists,
+    variableWatchers,
+    listWatchers,
     stage: {
       ...stageRange,
       background: currentBackdrop.fill,
@@ -546,14 +672,24 @@ export default function NeurixEditor({
       cloneProgram: sprite.cloneProgram ?? [],
       broadcastPrograms: sprite.broadcastPrograms ?? {},
       backdropPrograms: sprite.backdropPrograms ?? {},
+      variables: sprite.variables ?? {},
+      lists: sprite.lists ?? {},
       costumes: sprite.costumes ?? [defaultCostume(sprite.tone)],
       currentCostumeId: sprite.currentCostumeId,
     })),
-  }), [cloudVariables, currentBackdrop, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.workspaceState]);
+  }), [cloudVariables, currentBackdrop, listWatchers, projectLists, projectVariables, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.workspaceState, variableWatchers]);
 
   useEffect(() => {
     cloudVariablesRef.current = cloudVariables;
   }, [cloudVariables]);
+
+  useEffect(() => {
+    projectVariablesRef.current = projectVariables;
+  }, [projectVariables]);
+
+  useEffect(() => {
+    projectListsRef.current = projectLists;
+  }, [projectLists]);
 
   useEffect(() => {
     stageStateRef.current = stageState;
@@ -564,15 +700,14 @@ export default function NeurixEditor({
   }, [sprites]);
 
   useEffect(() => {
-    if (!isStageFullscreen) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsStageFullscreen(false);
+      if (event.key === "Escape") setWatcherMenu(null);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isStageFullscreen]);
+  }, []);
 
   useEffect(() => {
     timerStartRef.current = Date.now();
@@ -664,6 +799,156 @@ export default function NeurixEditor({
     });
   }, []);
 
+  const getVariableValue = useCallback((name: string): RuntimeValue => {
+    if (name.startsWith("☁ ") || name.startsWith("Cloud: ")) return cloudVariablesRef.current[name] ?? 0;
+    const sprite = spritesRef.current.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) return sprite.variables?.[name] ?? 0;
+    return projectVariablesRef.current[name] ?? 0;
+  }, []);
+
+  const setVariableValue = useCallback((spriteId: string, name: string, value: RuntimeValue) => {
+    const sprite = spritesRef.current.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) {
+      setSprites((curr) => curr.map((item) => item.id === sprite.id ? { ...item, variables: { ...(item.variables ?? {}), [name]: value } } : item));
+      spritesRef.current = spritesRef.current.map((item) => item.id === sprite.id ? { ...item, variables: { ...(item.variables ?? {}), [name]: value } } : item);
+      return;
+    }
+
+    const activeSpriteForLocal = spritesRef.current.find((item) => item.id === spriteId);
+    if (activeSpriteForLocal && name.startsWith(`${activeSpriteForLocal.name}: `)) {
+      setSprites((curr) => curr.map((item) => item.id === spriteId ? { ...item, variables: { ...(item.variables ?? {}), [name]: value } } : item));
+      spritesRef.current = spritesRef.current.map((item) => item.id === spriteId ? { ...item, variables: { ...(item.variables ?? {}), [name]: value } } : item);
+      return;
+    }
+
+    const next = { ...projectVariablesRef.current, [name]: value };
+    projectVariablesRef.current = next;
+    setProjectVariables(next);
+  }, []);
+
+  const getListValue = useCallback((name: string): RuntimeValue[] => {
+    const sprite = spritesRef.current.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) return sprite.lists?.[name] ?? [];
+    return projectListsRef.current[name] ?? [];
+  }, []);
+
+  const setListValue = useCallback((spriteId: string, name: string, values: RuntimeValue[]) => {
+    const sprite = spritesRef.current.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) {
+      setSprites((curr) => curr.map((item) => item.id === sprite.id ? { ...item, lists: { ...(item.lists ?? {}), [name]: values } } : item));
+      spritesRef.current = spritesRef.current.map((item) => item.id === sprite.id ? { ...item, lists: { ...(item.lists ?? {}), [name]: values } } : item);
+      return;
+    }
+
+    const activeSpriteForLocal = spritesRef.current.find((item) => item.id === spriteId);
+    if (activeSpriteForLocal && name.startsWith(`${activeSpriteForLocal.name}: `)) {
+      setSprites((curr) => curr.map((item) => item.id === spriteId ? { ...item, lists: { ...(item.lists ?? {}), [name]: values } } : item));
+      spritesRef.current = spritesRef.current.map((item) => item.id === spriteId ? { ...item, lists: { ...(item.lists ?? {}), [name]: values } } : item);
+      return;
+    }
+
+    const next = { ...projectListsRef.current, [name]: values };
+    projectListsRef.current = next;
+    setProjectLists(next);
+  }, []);
+
+  const handleVariableCreate = useCallback((name: string) => {
+    if (!name.trim() || name.startsWith("☁ ")) return;
+    setVariableValue(activeId, name, 0);
+  }, [activeId, setVariableValue]);
+
+  const handleListCreate = useCallback((name: string) => {
+    if (!name.trim()) return;
+    setListValue(activeId, name, []);
+  }, [activeId, setListValue]);
+
+  const setListWatcherVisible = useCallback((name: string, visible: boolean) => {
+    if (!name.trim()) return;
+    setListWatchers((curr) => {
+      const existing = curr.find((watcher) => watcher.name === name);
+      if (existing) return curr.map((watcher) => watcher.name === name ? { ...watcher, visible } : watcher);
+      return [...curr, {
+        id: `list-watcher-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name,
+        visible,
+        x: 4,
+        y: clamp(16 + curr.length * 10, 4, 76),
+      }];
+    });
+  }, []);
+
+  const toggleVariableWatcher = useCallback((name: string) => {
+    if (!name.trim()) return;
+    setVariableWatchers((curr) => {
+      const existing = curr.find((watcher) => watcher.name === name);
+      if (existing) return curr.map((watcher) => watcher.name === name ? { ...watcher, visible: !watcher.visible } : watcher);
+      return [...curr, {
+        id: `watcher-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name,
+        visible: true,
+        mode: "normal",
+        x: 4,
+        y: clamp(4 + curr.length * 8, 4, 84),
+      }];
+    });
+  }, []);
+
+  const cycleVariableWatcherMode = useCallback((id: string) => {
+    setVariableWatchers((curr) => curr.map((watcher) => {
+      if (watcher.id !== id) return watcher;
+      const mode = watcher.mode === "normal" ? "large" : watcher.mode === "large" ? "slider" : "normal";
+      return { ...watcher, mode };
+    }));
+  }, []);
+
+  const setVariableWatcherMode = useCallback((id: string, mode: NonNullable<VariableWatcher["mode"]>) => {
+    setVariableWatchers((curr) => curr.map((watcher) => watcher.id === id ? { ...watcher, mode } : watcher));
+    setWatcherMenu(null);
+  }, []);
+
+  const moveVariableWatcher = useCallback((id: string, x: number, y: number) => {
+    setVariableWatchers((curr) => curr.map((watcher) => watcher.id === id ? { ...watcher, x: clamp(x, 0, 92), y: clamp(y, 0, 92) } : watcher));
+  }, []);
+
+  const moveListWatcher = useCallback((id: string, x: number, y: number) => {
+    setListWatchers((curr) => curr.map((watcher) => watcher.id === id ? { ...watcher, x: clamp(x, 0, 88), y: clamp(y, 0, 84) } : watcher));
+  }, []);
+
+  const handleWatcherDrag = (drag: WatcherDragState, event: PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.parentElement?.getBoundingClientRect();
+    if (!rect) return;
+    const x = drag.startX + ((event.clientX - drag.startClientX) / rect.width) * 100;
+    const y = drag.startY + ((event.clientY - drag.startClientY) / rect.height) * 100;
+    if (drag.kind === "list") {
+      moveListWatcher(drag.id, x, y);
+      return;
+    }
+    moveVariableWatcher(drag.id, x, y);
+  };
+
+  const getRenderedVariableValue = (name: string): RuntimeValue => {
+    if (name.startsWith("☁ ") || name.startsWith("Cloud: ")) return cloudVariables[name] ?? 0;
+    const sprite = sprites.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) return sprite.variables?.[name] ?? 0;
+    return projectVariables[name] ?? 0;
+  };
+
+  const setRenderedVariableValue = (name: string, value: RuntimeValue) => {
+    if (name.startsWith("☁ ") || name.startsWith("Cloud: ")) {
+      const next = { ...cloudVariablesRef.current, [name]: sanitizeCloudValue(value) };
+      cloudVariablesRef.current = next;
+      setCloudVariables(next);
+      return;
+    }
+    setVariableValue(activeId, name, value);
+  };
+
+  const getRenderedListValue = (name: string): RuntimeValue[] => {
+    const sprite = sprites.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) return sprite.lists?.[name] ?? [];
+    return projectLists[name] ?? [];
+  };
+
   const renderStageViewport = (variant: "panel" | "fullscreen" = "panel") => (
     <div
       className={`stage-viewport ${variant === "fullscreen" ? "stage-viewport-fullscreen" : "stage-viewport-panel"}`}
@@ -671,6 +956,7 @@ export default function NeurixEditor({
       style={{ background: currentBackdrop.fill }}
       onPointerMove={updateMousePosition}
       onPointerDown={(event) => {
+        setWatcherMenu(null);
         updateMousePosition(event);
         mouseRef.current.down = true;
       }}
@@ -709,6 +995,135 @@ export default function NeurixEditor({
           </div>
         ) : null,
       )}
+      {variableWatchers.filter((watcher) => watcher.visible).map((watcher) => (
+        <div
+          className={`stage-variable-watcher stage-variable-watcher-${watcher.mode ?? "normal"} ${watcher.name.startsWith("☁ ") ? "stage-variable-watcher-cloud" : ""}`}
+          key={watcher.id}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            cycleVariableWatcherMode(watcher.id);
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            if (event.button !== 0) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            watcherDragRef.current = {
+              id: watcher.id,
+              kind: "variable",
+              pointerId: event.pointerId,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              startX: watcher.x,
+              startY: watcher.y,
+              isDragging: false,
+            };
+          }}
+          onPointerMove={(event) => {
+            if (event.buttons !== 1) return;
+            event.stopPropagation();
+            const drag = watcherDragRef.current;
+            if (!drag || drag.id !== watcher.id || drag.pointerId !== event.pointerId) return;
+            const distance = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
+            if (!drag.isDragging && distance < 5) return;
+            drag.isDragging = true;
+            handleWatcherDrag(drag, event);
+          }}
+          onPointerUp={(event) => {
+            event.stopPropagation();
+            if (watcherDragRef.current?.pointerId === event.pointerId) watcherDragRef.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={(event) => {
+            if (watcherDragRef.current?.pointerId === event.pointerId) watcherDragRef.current = null;
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setWatcherMenu({ id: watcher.id, x: event.clientX, y: event.clientY });
+          }}
+          style={{ left: `${watcher.x}%`, top: `${watcher.y}%` }}
+          title="Right-click for display styles"
+        >
+          {(watcher.mode ?? "normal") !== "large" && <span>{watcher.name}</span>}
+          <strong>{String(getRenderedVariableValue(watcher.name))}</strong>
+          {watcher.mode === "slider" && (
+            <input
+              aria-label={`${watcher.name} slider`}
+              min={0}
+              max={100}
+              onChange={(event) => setRenderedVariableValue(watcher.name, Number(event.currentTarget.value))}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerMove={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+              type="range"
+              value={clamp(Number(getRenderedVariableValue(watcher.name)) || 0, 0, 100)}
+            />
+          )}
+        </div>
+      ))}
+      {listWatchers.filter((watcher) => watcher.visible).map((watcher) => {
+        const values = getRenderedListValue(watcher.name);
+        return (
+          <div
+            className="stage-list-watcher"
+            key={watcher.id}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              if (event.button !== 0) return;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              watcherDragRef.current = {
+                id: watcher.id,
+                kind: "list",
+                pointerId: event.pointerId,
+                startClientX: event.clientX,
+                startClientY: event.clientY,
+                startX: watcher.x,
+                startY: watcher.y,
+                isDragging: false,
+              };
+            }}
+            onPointerMove={(event) => {
+              if (event.buttons !== 1) return;
+              event.stopPropagation();
+              const drag = watcherDragRef.current;
+              if (!drag || drag.kind !== "list" || drag.id !== watcher.id || drag.pointerId !== event.pointerId) return;
+              const distance = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
+              if (!drag.isDragging && distance < 5) return;
+              drag.isDragging = true;
+              handleWatcherDrag(drag, event);
+            }}
+            onPointerUp={(event) => {
+              event.stopPropagation();
+              if (watcherDragRef.current?.pointerId === event.pointerId) watcherDragRef.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={(event) => {
+              if (watcherDragRef.current?.pointerId === event.pointerId) watcherDragRef.current = null;
+            }}
+            style={{ left: `${watcher.x}%`, top: `${watcher.y}%` }}
+          >
+            <div className="stage-list-watcher-title">{watcher.name}</div>
+            <div className="stage-list-watcher-body">
+              {values.length === 0 ? <span>(empty)</span> : values.map((value, index) => <span key={`${watcher.id}-${index}`}>{String(value)}</span>)}
+            </div>
+            <div className="stage-list-watcher-footer"><b>+</b><strong>length {values.length}</strong><b>=</b></div>
+          </div>
+        );
+      })}
+      {watcherMenu && (
+        <div
+          className="stage-variable-menu"
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          style={{ left: watcherMenu.x, top: watcherMenu.y }}
+        >
+          <button onClick={() => setVariableWatcherMode(watcherMenu.id, "normal")} type="button">Normal readout</button>
+          <button onClick={() => setVariableWatcherMode(watcherMenu.id, "large")} type="button">Large readout</button>
+          <button onClick={() => setVariableWatcherMode(watcherMenu.id, "slider")} type="button">Slider</button>
+        </div>
+      )}
       {!stageSprites.some((sprite) => sprite.visible) && (
         <div className="stage-empty">
           <p className="stage-empty-title">No visible sprites</p>
@@ -745,6 +1160,8 @@ export default function NeurixEditor({
       workspaceState: null,
       program: [],
       cloneProgram: [],
+      variables: {},
+      lists: {},
       costumes: [defaultCostume(tone)],
       currentCostumeId: "costume-1",
     };
@@ -957,11 +1374,16 @@ export default function NeurixEditor({
           const index = costumes.findIndex((costume) => costume.id === sprite.currentCostumeId);
           return index >= 0 ? index + 1 : 1;
         },
+        getVariable: getVariableValue,
+        setVariable: (name, value) => setVariableValue(spriteId, name, value),
         getCloudVariable: (name) => cloudVariablesRef.current[name] ?? 0,
         setCloudVariable: (name, value) => {
-          cloudVariablesRef.current = { ...cloudVariablesRef.current, [name]: value };
+          cloudVariablesRef.current = { ...cloudVariablesRef.current, [name]: sanitizeCloudValue(value) };
           setCloudVariables(cloudVariablesRef.current);
         },
+        getList: getListValue,
+        setList: (name, values) => setListValue(spriteId, name, values),
+        setListVisible: setListWatcherVisible,
         touchingEdge: () => {
           const sprite = spritesRef.current.find((item) => item.id === spriteId);
           if (!sprite) return false;
@@ -1171,7 +1593,7 @@ export default function NeurixEditor({
         },
       });
     },
-    [updateSprite],
+    [getListValue, getVariableValue, setListValue, setListWatcherVisible, setVariableValue, updateSprite],
   );
 
   const runProgramStacks = useCallback(
@@ -1347,10 +1769,18 @@ export default function NeurixEditor({
                   targetType={activeTarget}
                   backdrops={backdropOptions}
                   costumes={costumeOptions}
+                  variableNames={variableNames}
                   cloudVariableNames={cloudVariableNames}
+                  listNames={listNames}
+                  visibleWatcherNames={variableWatchers.filter((watcher) => watcher.visible).map((watcher) => watcher.name)}
+                  visibleListWatcherNames={listWatchers.filter((watcher) => watcher.visible).map((watcher) => watcher.name)}
                   workspaceState={activeTarget === "stage" ? stageState.workspaceState ?? null : activeSprite.workspaceState}
                   onWorkspaceChange={handleWorkspaceChange}
+                  onVariableCreate={handleVariableCreate}
                   onCloudVariableCreate={handleCloudVariableCreate}
+                  onVariableWatcherToggle={toggleVariableWatcher}
+                  onListWatcherVisibleChange={setListWatcherVisible}
+                  onListCreate={handleListCreate}
                 />
               )}
               {workspaceTab === "art" && activeTarget === "stage" && (

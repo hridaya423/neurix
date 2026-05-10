@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties, PointerEvent } from "react";
+import type { CSSProperties, ChangeEvent, PointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlocklyPanel } from "./BlocklyPanel";
 import { ScratchPaintBackdropEditor } from "./ScratchPaintBackdropEditor";
 import type { ScriptEventPrograms, ScriptNode, ScriptProgram } from "@/lib/compiler/types";
 import { runScript } from "@/lib/runtime/interpreter";
+import { exportProjectToSb3, getSb3FileName, importProjectFromSb3 } from "@/lib/scratch/sb3";
 import {
   Play,
   Square,
   Save,
+  Upload,
+  Download,
   RotateCcw,
   Plus,
   Maximize2,
@@ -591,6 +594,7 @@ export default function NeurixEditor({
   const mouseRef = useRef({ x: 0, y: 0, down: false });
   const watcherDragRef = useRef<WatcherDragState | null>(null);
   const timerStartRef = useRef(0);
+  const sb3InputRef = useRef<HTMLInputElement | null>(null);
   const cloudVariablesRef = useRef(cloudVariables);
   const projectVariablesRef = useRef(projectVariables);
   const projectListsRef = useRef(projectLists);
@@ -857,10 +861,62 @@ export default function NeurixEditor({
     setVariableValue(activeId, name, 0);
   }, [activeId, setVariableValue]);
 
+  const handleVariableDelete = useCallback((name: string) => {
+    if (!name.trim()) return;
+    setVariableWatchers((curr) => curr.filter((watcher) => watcher.name !== name));
+
+    if (name.startsWith("☁ ") || name.startsWith("Cloud: ")) {
+      const next = { ...cloudVariablesRef.current };
+      delete next[name];
+      cloudVariablesRef.current = next;
+      setCloudVariables(next);
+      return;
+    }
+
+    const sprite = spritesRef.current.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) {
+      spritesRef.current = spritesRef.current.map((item) => {
+        if (item.id !== sprite.id) return item;
+        const variables = { ...(item.variables ?? {}) };
+        delete variables[name];
+        return { ...item, variables };
+      });
+      setSprites(spritesRef.current);
+      return;
+    }
+
+    const next = { ...projectVariablesRef.current };
+    delete next[name];
+    projectVariablesRef.current = next;
+    setProjectVariables(next);
+  }, []);
+
   const handleListCreate = useCallback((name: string) => {
     if (!name.trim()) return;
     setListValue(activeId, name, []);
   }, [activeId, setListValue]);
+
+  const handleListDelete = useCallback((name: string) => {
+    if (!name.trim()) return;
+    setListWatchers((curr) => curr.filter((watcher) => watcher.name !== name));
+
+    const sprite = spritesRef.current.find((item) => name.startsWith(`${item.name}: `));
+    if (sprite) {
+      spritesRef.current = spritesRef.current.map((item) => {
+        if (item.id !== sprite.id) return item;
+        const lists = { ...(item.lists ?? {}) };
+        delete lists[name];
+        return { ...item, lists };
+      });
+      setSprites(spritesRef.current);
+      return;
+    }
+
+    const next = { ...projectListsRef.current };
+    delete next[name];
+    projectListsRef.current = next;
+    setProjectLists(next);
+  }, []);
 
   const setListWatcherVisible = useCallback((name: string, visible: boolean) => {
     if (!name.trim()) return;
@@ -1667,6 +1723,48 @@ export default function NeurixEditor({
     await onSave?.(projectName, projectDocument);
   };
 
+  const exportSb3 = async () => {
+    const blob = await exportProjectToSb3(projectName, projectDocument);
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = getSb3FileName(projectName);
+    anchor.click();
+    URL.revokeObjectURL(href);
+  };
+
+  const importSb3 = async (file: File) => {
+    const imported = await importProjectFromSb3(file);
+    setProjectName(imported.name || "Imported Project");
+    setCloudVariables(normalizeCloudVariables(imported.document.cloudVariables));
+    setProjectVariables(normalizeRuntimeValues(imported.document.variables));
+    setProjectLists(normalizeLists(imported.document.lists));
+    setVariableWatchers(normalizeWatchers(imported.document.variableWatchers));
+    setListWatchers(normalizeListWatchers(imported.document.listWatchers));
+    setStageState(normalizeStage(imported.document.stage));
+    const importedSprites = normalizeLayerOrder((imported.document.sprites.length > 0 ? imported.document.sprites : initialSprites).map(normalizeSprite));
+    setSprites(importedSprites);
+    setActiveId((importedSprites[0] ?? initialSprites[0]).id);
+    setActiveTarget("sprite");
+    setWorkspaceTab("scripts");
+    setIsRunning(false);
+    setWatcherMenu(null);
+  };
+
+  const onImportSb3Click = () => {
+    sb3InputRef.current?.click();
+  };
+
+  const onImportSb3Change = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      await importSb3(file);
+    } finally {
+      event.currentTarget.value = "";
+    }
+  };
+
   const stopAllSprites = () => {
     runIdRef.current += 1;
     deletedCloneIdsRef.current.clear();
@@ -1709,6 +1807,15 @@ export default function NeurixEditor({
               {saveStatus === "saving" ? "Saving" : saveStatus === "error" ? "Error" : "Unsaved"}
             </span>
           )}
+          <input accept=".sb3" onChange={onImportSb3Change} ref={sb3InputRef} style={{ display: "none" }} type="file" />
+          <button className="toolbar-btn" type="button" onClick={onImportSb3Click}>
+            <Upload size={14} strokeWidth={2} />
+            Import .sb3
+          </button>
+          <button className="toolbar-btn" type="button" onClick={exportSb3}>
+            <Download size={14} strokeWidth={2} />
+            Export .sb3
+          </button>
           <button className="toolbar-btn toolbar-btn-save" type="button" onClick={saveProject}>
             <Save size={14} strokeWidth={2} />
             Save
@@ -1778,9 +1885,11 @@ export default function NeurixEditor({
                   onWorkspaceChange={handleWorkspaceChange}
                   onVariableCreate={handleVariableCreate}
                   onCloudVariableCreate={handleCloudVariableCreate}
+                  onVariableDelete={handleVariableDelete}
                   onVariableWatcherToggle={toggleVariableWatcher}
                   onListWatcherVisibleChange={setListWatcherVisible}
                   onListCreate={handleListCreate}
+                  onListDelete={handleListDelete}
                 />
               )}
               {workspaceTab === "art" && activeTarget === "stage" && (

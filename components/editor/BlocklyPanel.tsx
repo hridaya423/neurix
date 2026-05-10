@@ -12,6 +12,7 @@ let customBlocksRegistered = false;
 const customCallShapeSignatures = new WeakMap<Blockly.Block, string>();
 const customDefinitionsByWorkspace = new WeakMap<Blockly.Workspace, CustomDefinitionData[]>();
 const customDefinitionRepairTimers = new WeakMap<Blockly.Workspace, number[]>();
+const watcherCheckboxSelector = ".neurix-variable-monitor-checkbox, .neurix-list-monitor-checkbox";
 
 type BlocklyPanelProps = {
   activeSpriteId: string;
@@ -28,9 +29,11 @@ type BlocklyPanelProps = {
   onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms) => void;
   onVariableCreate?: (name: string) => void;
   onCloudVariableCreate?: (name: string) => void;
+  onVariableDelete?: (name: string) => void;
   onVariableWatcherToggle?: (name: string) => void;
   onListWatcherVisibleChange?: (name: string, visible: boolean) => void;
   onListCreate?: (name: string) => void;
+  onListDelete?: (name: string) => void;
 };
 
 type AiProcessResponse = {
@@ -690,7 +693,7 @@ const CUSTOM_BLOCKS = [
     args0: [{ type: "input_value", name: "A" }, { type: "input_value", name: "B" }],
     inputsInline: true,
     output: "String",
-    style: "operators_blocks",
+    style: "text_blocks",
   },
   {
     type: "operator_contains",
@@ -698,7 +701,7 @@ const CUSTOM_BLOCKS = [
     args0: [{ type: "input_value", name: "TEXT" }, { type: "input_value", name: "SEARCH" }],
     inputsInline: true,
     output: "Boolean",
-    style: "operators_blocks",
+    style: "text_blocks",
   },
   {
     type: "operator_and",
@@ -961,10 +964,11 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       name: "Operators",
       categorystyle: "operators_category",
       contents: [
-        { kind: "block", type: "logic_boolean" },
-        { kind: "block", type: "logic_compare" },
-        { kind: "block", type: "logic_operation" },
-        { kind: "block", type: "logic_negate" },
+        { kind: "block", type: "operator_compare_numbers" },
+        { kind: "block", type: "operator_compare_values" },
+        { kind: "block", type: "operator_and" },
+        { kind: "block", type: "operator_or" },
+        { kind: "block", type: "operator_not" },
       ],
     },
     {
@@ -1074,10 +1078,11 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       name: "Operators",
       categorystyle: "operators_category",
       contents: [
-        { kind: "block", type: "logic_boolean" },
-        { kind: "block", type: "logic_compare" },
-        { kind: "block", type: "logic_operation" },
-        { kind: "block", type: "logic_negate" },
+        { kind: "block", type: "operator_compare_numbers" },
+        { kind: "block", type: "operator_compare_values" },
+        { kind: "block", type: "operator_and" },
+        { kind: "block", type: "operator_or" },
+        { kind: "block", type: "operator_not" },
       ],
     },
     {
@@ -1114,64 +1119,74 @@ const THEME = Blockly.Theme.defineTheme("neurix_light", {
   base: Blockly.Themes.Zelos,
   blockStyles: {
     event_blocks: {
-      colourPrimary: "#38BDF8",
-      colourSecondary: "#0EA5E9",
-      colourTertiary: "#0284C7",
+      colourPrimary: "#4C97FF",
+      colourSecondary: "#4280D7",
+      colourTertiary: "#3373CC",
       hat: "cap",
     },
     motion_blocks: {
-      colourPrimary: "#34D399",
-      colourSecondary: "#10B981",
-      colourTertiary: "#059669",
+      colourPrimary: "#59C059",
+      colourSecondary: "#46B946",
+      colourTertiary: "#389438",
     },
     looks_blocks: {
-      colourPrimary: "#A78BFA",
-      colourSecondary: "#8B5CF6",
-      colourTertiary: "#7C3AED",
+      colourPrimary: "#9966FF",
+      colourSecondary: "#855CD6",
+      colourTertiary: "#774DCB",
     },
     control_blocks: {
-      colourPrimary: "#F472B6",
-      colourSecondary: "#EC4899",
-      colourTertiary: "#DB2777",
+      colourPrimary: "#FFAB19",
+      colourSecondary: "#EC9C13",
+      colourTertiary: "#CF8B17",
     },
     operators_blocks: {
-      colourPrimary: "#FBBF24",
-      colourSecondary: "#F59E0B",
-      colourTertiary: "#D97706",
+      colourPrimary: "#40BF4A",
+      colourSecondary: "#389438",
+      colourTertiary: "#2E7D32",
     },
     sensing_blocks: {
-      colourPrimary: "#22C55E",
-      colourSecondary: "#16A34A",
-      colourTertiary: "#15803D",
+      colourPrimary: "#5CB1D6",
+      colourSecondary: "#47A8D1",
+      colourTertiary: "#2E8EB8",
     },
     custom_blocks: {
-      colourPrimary: "#56CBF9",
-      colourSecondary: "#7FBEEB",
-      colourTertiary: "#2BAED9",
+      colourPrimary: "#FF6680",
+      colourSecondary: "#FF4D6A",
+      colourTertiary: "#E0445F",
     },
     list_blocks: {
-      colourPrimary: "#FF8C42",
-      colourSecondary: "#E86F1D",
-      colourTertiary: "#C85A14",
+      colourPrimary: "#FF8C1A",
+      colourSecondary: "#FF8000",
+      colourTertiary: "#DB6E00",
     },
     procedure_blocks: {
-      colourPrimary: "#56CBF9",
-      colourSecondary: "#7FBEEB",
-      colourTertiary: "#2BAED9",
+      colourPrimary: "#FF6680",
+      colourSecondary: "#FF4D6A",
+      colourTertiary: "#E0445F",
+    },
+    math_blocks: {
+      colourPrimary: "#FFB347",
+      colourSecondary: "#FFA726",
+      colourTertiary: "#F38A00",
+    },
+    text_blocks: {
+      colourPrimary: "#9966FF",
+      colourSecondary: "#855CD6",
+      colourTertiary: "#774DCB",
     },
   },
   categoryStyles: {
-    event_category: { colour: "#38BDF8" },
-    motion_category: { colour: "#34D399" },
-    looks_category: { colour: "#A78BFA" },
-    control_category: { colour: "#F472B6" },
-    sensing_category: { colour: "#22C55E" },
-    operators_category: { colour: "#FBBF24" },
-    custom_category: { colour: "#56CBF9" },
-    variables_category: { colour: "#FF8C42" },
-    lists_category: { colour: "#FF8C42" },
-    math_category: { colour: "#F59E0B" },
-    text_category: { colour: "#06B6D4" },
+    event_category: { colour: "#4C97FF" },
+    motion_category: { colour: "#59C059" },
+    looks_category: { colour: "#9966FF" },
+    control_category: { colour: "#FFAB19" },
+    sensing_category: { colour: "#5CB1D6" },
+    operators_category: { colour: "#40BF4A" },
+    custom_category: { colour: "#FF6680" },
+    variables_category: { colour: "#FF8C1A" },
+    lists_category: { colour: "#FF661A" },
+    math_category: { colour: "#FFB347" },
+    text_category: { colour: "#9966FF" },
   },
   componentStyles: {
     workspaceBackgroundColour: "transparent",
@@ -1196,14 +1211,6 @@ function seedWorkspace(workspace: Blockly.WorkspaceSvg) {
   eventBlock.initSvg();
   eventBlock.render();
   eventBlock.moveBy(260, 100);
-
-  const moveBlock = workspace.newBlock("motion_move_steps");
-  moveBlock.initSvg();
-  moveBlock.render();
-
-  if (eventBlock.nextConnection && moveBlock.previousConnection) {
-    eventBlock.nextConnection.connect(moveBlock.previousConnection);
-  }
 }
 
 type SerializedBlockState = {
@@ -1701,7 +1708,7 @@ function customBlocksFlyout(workspace: Blockly.Workspace): Blockly.utils.toolbox
 }
 
 function variablesFlyout(workspace: Blockly.WorkspaceSvg): Blockly.utils.toolbox.FlyoutItemInfoArray {
-  removeAllVariableWatcherCheckboxes(workspace);
+  removeAllWatcherCheckboxes(workspace);
   const items = Blockly.Variables.flyoutCategory(workspace, false).filter((item) => {
     if (item.kind === "button") return false;
     const blockItem = item as Partial<Blockly.utils.toolbox.BlockInfo>;
@@ -1720,6 +1727,7 @@ function variablesFlyout(workspace: Blockly.WorkspaceSvg): Blockly.utils.toolbox
   }));
   return [
     { kind: "button", text: "Make a Variable", callbackkey: "NEURIX_CREATE_VARIABLE" },
+    ...(variables.length > 0 ? [{ kind: "button", text: "Delete a Variable", callbackkey: "NEURIX_DELETE_VARIABLE" }] : []),
     ...watcherBlocks,
     ...items,
   ] as Blockly.utils.toolbox.FlyoutItemInfoArray;
@@ -1733,7 +1741,7 @@ type VariableWatcherToggleBlock = Blockly.BlockSvg & {
 };
 
 function listsFlyout(workspace: Blockly.WorkspaceSvg): Blockly.utils.toolbox.FlyoutItemInfoArray {
-  scheduleWatcherCheckboxCleanup(workspace);
+  removeAllWatcherCheckboxes(workspace);
   const options = listOptionsByWorkspace.get(workspace) ?? [["list", "list"]];
   const hasLists = options.some(([, value]) => value !== "list");
   const firstList = hasLists ? options[0][1] : "list";
@@ -1742,6 +1750,7 @@ function listsFlyout(workspace: Blockly.WorkspaceSvg): Blockly.utils.toolbox.Fly
     { kind: "button", text: "Make a List", callbackkey: "NEURIX_CREATE_LIST" },
   ];
   if (hasLists) {
+    items.push({ kind: "button", text: "Delete a List", callbackkey: "NEURIX_DELETE_LIST" });
     const watcherBlocks = options
       .map(([, value]) => value)
       .filter((value) => value !== "list")
@@ -1796,45 +1805,47 @@ function setVariableWatcherToggleName(block: Blockly.Block, name: string) {
 }
 
 function removeVariableWatcherCheckbox(block: Blockly.Block) {
-  const canvas = (block.workspace as Blockly.WorkspaceSvg).getCanvas?.();
-  canvas?.querySelector(`[data-neurix-variable-checkbox="${block.id}"]`)?.remove();
+  for (const root of getWorkspaceCleanupRoots(block.workspace)) {
+    root.querySelector(`[data-neurix-variable-checkbox="${block.id}"]`)?.remove();
+  }
 }
 
-function getWorkspaceCanvases(workspace: Blockly.Workspace) {
-  const canvases: SVGElement[] = [];
+function getWorkspaceCleanupRoots(workspace: Blockly.Workspace) {
+  const roots: Element[] = [];
   const svgWorkspace = workspace as Blockly.WorkspaceSvg;
+  const parentSvg = svgWorkspace.getParentSvg?.();
+  const blocklyRoot = parentSvg?.closest?.(".neurix-blockly");
+  if (blocklyRoot) roots.push(blocklyRoot);
+  if (parentSvg && !roots.includes(parentSvg)) roots.push(parentSvg);
+
   const workspaceCanvas = svgWorkspace.getCanvas?.();
-  if (workspaceCanvas) canvases.push(workspaceCanvas);
+  if (workspaceCanvas && !roots.includes(workspaceCanvas)) roots.push(workspaceCanvas);
 
   const flyoutCanvas = svgWorkspace.getFlyout?.()?.getWorkspace?.()?.getCanvas?.();
-  if (flyoutCanvas && !canvases.includes(flyoutCanvas)) canvases.push(flyoutCanvas);
+  if (flyoutCanvas && !roots.includes(flyoutCanvas)) roots.push(flyoutCanvas);
 
   const targetWorkspace = svgWorkspace.targetWorkspace as Blockly.WorkspaceSvg | undefined;
   const targetFlyoutCanvas = targetWorkspace?.getFlyout?.()?.getWorkspace?.()?.getCanvas?.();
-  if (targetFlyoutCanvas && !canvases.includes(targetFlyoutCanvas)) canvases.push(targetFlyoutCanvas);
+  if (targetFlyoutCanvas && !roots.includes(targetFlyoutCanvas)) roots.push(targetFlyoutCanvas);
 
-  return canvases;
+  return roots;
 }
 
 function removeStaleVariableWatcherCheckboxes(workspace: Blockly.Workspace) {
-  for (const canvas of getWorkspaceCanvases(workspace)) {
-    canvas.querySelectorAll<SVGGElement>(".neurix-variable-monitor-checkbox, .neurix-list-monitor-checkbox").forEach((checkbox) => {
+  for (const root of getWorkspaceCleanupRoots(workspace)) {
+    root.querySelectorAll<SVGGElement>(watcherCheckboxSelector).forEach((checkbox) => {
       const blockId = checkbox.getAttribute("data-neurix-variable-checkbox");
       if (!blockId || !workspace.getBlockById(blockId)) checkbox.remove();
     });
   }
 }
 
-function removeAllVariableWatcherCheckboxes(workspace: Blockly.Workspace) {
-  for (const canvas of getWorkspaceCanvases(workspace)) {
-    canvas.querySelectorAll(".neurix-variable-monitor-checkbox").forEach((checkbox) => checkbox.remove());
-  }
-}
-
 function removeAllWatcherCheckboxes(workspace: Blockly.Workspace) {
-  for (const canvas of getWorkspaceCanvases(workspace)) {
-    canvas.querySelectorAll(".neurix-variable-monitor-checkbox, .neurix-list-monitor-checkbox").forEach((checkbox) => checkbox.remove());
+  for (const root of getWorkspaceCleanupRoots(workspace)) {
+    root.querySelectorAll(watcherCheckboxSelector).forEach((checkbox) => checkbox.remove());
   }
+  const ownerDocument = (workspace as Blockly.WorkspaceSvg).getParentSvg?.()?.ownerDocument ?? document;
+  ownerDocument.querySelectorAll(watcherCheckboxSelector).forEach((checkbox) => checkbox.remove());
 }
 
 function scheduleVariableWatcherCheckboxCleanup(workspace: Blockly.Workspace) {
@@ -1843,8 +1854,18 @@ function scheduleVariableWatcherCheckboxCleanup(workspace: Blockly.Workspace) {
   window.setTimeout(() => removeAllWatcherCheckboxes(workspace), 50);
 }
 
-function scheduleWatcherCheckboxCleanup(workspace: Blockly.Workspace) {
-  scheduleVariableWatcherCheckboxCleanup(workspace);
+function flyoutHasWatcherRows(workspace: Blockly.WorkspaceSvg) {
+  const flyoutWorkspace = workspace.getFlyout?.()?.getWorkspace?.();
+  return flyoutWorkspace?.getAllBlocks(false).some((block) => block.type === "variable_watcher_toggle" || block.type === "list_watcher_toggle") ?? false;
+}
+
+function scheduleCheckboxCleanupIfFlyoutHasNoWatcherRows(workspace: Blockly.WorkspaceSvg) {
+  const cleanupIfNoWatcherRows = () => {
+    if (!flyoutHasWatcherRows(workspace)) removeAllWatcherCheckboxes(workspace);
+  };
+  window.setTimeout(cleanupIfNoWatcherRows, 0);
+  window.setTimeout(cleanupIfNoWatcherRows, 50);
+  window.setTimeout(cleanupIfNoWatcherRows, 150);
 }
 
 function drawVariableWatcherCheckbox(block: Blockly.Block) {
@@ -1996,13 +2017,15 @@ function createCustomDefinition(workspace: Blockly.WorkspaceSvg, name: string, p
   return block;
 }
 
-function registerCustomFlyout(workspace: Blockly.WorkspaceSvg, openCustomBlockDialog: () => void, openVariableDialog: () => void, openListDialog: () => void) {
+function registerCustomFlyout(workspace: Blockly.WorkspaceSvg, openCustomBlockDialog: () => void, openVariableDialog: () => void, openVariableDeleteDialog: () => void, openListDialog: () => void, openListDeleteDialog: () => void) {
   workspace.registerToolboxCategoryCallback("CUSTOM_BLOCKS", customBlocksFlyout);
   workspace.registerToolboxCategoryCallback("NEURIX_VARIABLES", variablesFlyout);
   workspace.registerToolboxCategoryCallback("NEURIX_LISTS", listsFlyout);
   workspace.registerButtonCallback("CREATE_CUSTOM_BLOCK", openCustomBlockDialog);
   workspace.registerButtonCallback("NEURIX_CREATE_VARIABLE", openVariableDialog);
+  workspace.registerButtonCallback("NEURIX_DELETE_VARIABLE", openVariableDeleteDialog);
   workspace.registerButtonCallback("NEURIX_CREATE_LIST", openListDialog);
+  workspace.registerButtonCallback("NEURIX_DELETE_LIST", openListDeleteDialog);
 }
 
 function registerCustomBlocks() {
@@ -2243,7 +2266,7 @@ async function readTextStream(response: Response, onChunk: (text: string) => voi
   }
 }
 
-export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], variableNames = [], cloudVariableNames = [], listNames = [], visibleWatcherNames = [], visibleListWatcherNames = [], workspaceState, onWorkspaceChange, onVariableCreate, onCloudVariableCreate, onVariableWatcherToggle, onListWatcherVisibleChange, onListCreate }: BlocklyPanelProps) {
+export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], variableNames = [], cloudVariableNames = [], listNames = [], visibleWatcherNames = [], visibleListWatcherNames = [], workspaceState, onWorkspaceChange, onVariableCreate, onCloudVariableCreate, onVariableDelete, onVariableWatcherToggle, onListWatcherVisibleChange, onListCreate, onListDelete }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
@@ -2275,9 +2298,13 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
   const [isVariableDialogOpen, setIsVariableDialogOpen] = useState(false);
   const [variableName, setVariableName] = useState("score");
   const [variableScope, setVariableScope] = useState<VariableScope>("sprite");
+  const [isVariableDeleteDialogOpen, setIsVariableDeleteDialogOpen] = useState(false);
+  const [variableDeleteName, setVariableDeleteName] = useState("");
   const [isListDialogOpen, setIsListDialogOpen] = useState(false);
   const [listName, setListName] = useState("items");
   const [listScope, setListScope] = useState<ListScope>("project");
+  const [isListDeleteDialogOpen, setIsListDeleteDialogOpen] = useState(false);
+  const [listDeleteName, setListDeleteName] = useState("");
 
   useEffect(() => {
     onWorkspaceChangeRef.current = onWorkspaceChange;
@@ -2443,11 +2470,24 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     setIsVariableDialogOpen(true);
   }, [targetType]);
 
+  const openVariableDeleteDialog = useCallback(() => {
+    const workspace = workspaceRef.current;
+    const names = workspace?.getAllVariables().map((variable) => variable.getName()).filter(Boolean).sort() ?? [];
+    setVariableDeleteName(names[0] ?? "");
+    setIsVariableDeleteDialogOpen(names.length > 0);
+  }, []);
+
   const openListDialog = useCallback(() => {
     setListName("items");
     setListScope(targetType === "stage" ? "project" : "sprite");
     setIsListDialogOpen(true);
   }, [targetType]);
+
+  const openListDeleteDialog = useCallback(() => {
+    const names = listNamesRef.current.filter((name) => name !== "list").sort();
+    setListDeleteName(names[0] ?? "");
+    setIsListDeleteDialogOpen(names.length > 0);
+  }, []);
 
   const addCustomBlockArg = (kind: CustomBlockArg["kind"]) => {
     setCustomBlockParts((curr) => {
@@ -2539,6 +2579,19 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     setIsVariableDialogOpen(false);
   };
 
+  const submitVariableDeleteDialog = () => {
+    const workspace = workspaceRef.current;
+    const name = variableDeleteName.trim();
+    if (!workspace || !name) return;
+
+    const variable = workspace.getVariable(name);
+    if (variable) workspace.deleteVariableById(variable.getId());
+    onVariableDelete?.(name);
+    workspace.refreshToolboxSelection();
+    persistWorkspace();
+    setIsVariableDeleteDialogOpen(false);
+  };
+
   const submitListDialog = () => {
     const workspace = workspaceRef.current;
     if (!workspace) return;
@@ -2549,6 +2602,18 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     refreshListFields(workspace, [...new Set([...listNamesRef.current, scopedName])]);
     workspace.refreshToolboxSelection();
     setIsListDialogOpen(false);
+  };
+
+  const submitListDeleteDialog = () => {
+    const workspace = workspaceRef.current;
+    const name = listDeleteName.trim();
+    if (!workspace || !name) return;
+
+    onListDelete?.(name);
+    refreshListFields(workspace, listNamesRef.current.filter((item) => item !== name));
+    workspace.refreshToolboxSelection();
+    persistWorkspace();
+    setIsListDeleteDialogOpen(false);
   };
 
   const askAi = async () => {
@@ -2645,7 +2710,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       visibleNames: new Set(visibleListWatcherNamesRef.current),
       setVisible: (name, visible) => onListWatcherVisibleChange?.(name, visible),
     });
-    registerCustomFlyout(workspace, openCustomBlockDialog, openVariableDialog, openListDialog);
+    registerCustomFlyout(workspace, openCustomBlockDialog, openVariableDialog, openVariableDeleteDialog, openListDialog, openListDeleteDialog);
     loadWorkspace(workspace, initialWorkspaceStateRef.current);
     ensureVariables(workspace, variableNamesRef.current);
     ensureCloudVariables(workspace, cloudVariableNamesRef.current);
@@ -2692,6 +2757,15 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       if (selected.workspace !== workspace || selected.type !== "custom_define") return;
       event.preventDefault();
       openCustomBlockDialog(selected.id);
+    };
+
+    const handleToolboxPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) return;
+      if (event.target.closest(watcherCheckboxSelector)) return;
+
+      const toolboxRow = event.target.closest(".blocklyTreeRow");
+      if (!toolboxRow) return;
+      scheduleCheckboxCleanupIfFlyoutHasNoWatcherRows(workspace);
     };
 
     let lastSelectedCustomDefinitionId: string | null = null;
@@ -2751,6 +2825,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
 
     attachExplainContextMenus();
     host.addEventListener("dblclick", handleWorkspaceDoubleClick);
+    host.addEventListener("pointerdown", handleToolboxPointerDown, true);
     const hydrationTimer = window.setTimeout(() => {
       isHydratingWorkspace = false;
       emitWorkspaceChange();
@@ -2765,12 +2840,14 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       window.clearTimeout(hydrationTimer);
       for (const timer of customDefinitionRepairTimers.get(workspace) ?? []) window.clearTimeout(timer);
       customDefinitionRepairTimers.delete(workspace);
+      removeAllWatcherCheckboxes(workspace);
       host.removeEventListener("dblclick", handleWorkspaceDoubleClick);
+      host.removeEventListener("pointerdown", handleToolboxPointerDown, true);
       resizeObserver.disconnect();
       workspace.dispose();
       workspaceRef.current = null;
     };
-  }, [explainBlock, onListWatcherVisibleChange, onVariableWatcherToggle, openAskAi, openCustomBlockDialog, openListDialog, openVariableDialog, targetType]);
+  }, [explainBlock, onListWatcherVisibleChange, onVariableWatcherToggle, openAskAi, openCustomBlockDialog, openListDeleteDialog, openListDialog, openVariableDeleteDialog, openVariableDialog, targetType]);
 
   const generateCustomDefinition = async () => {
     const workspace = workspaceRef.current;
@@ -2820,6 +2897,9 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       setIsGenerating(false);
     }
   };
+
+  const variableDeleteOptions = [...new Set([...variableNames, ...cloudVariableNames])].filter(Boolean).sort();
+  const listDeleteOptions = [...new Set(listNames)].filter((name) => name && name !== "list").sort();
 
   return (
     <div className="neurix-blockly">
@@ -3007,6 +3087,32 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
           </div>
         </div>
       )}
+      {isVariableDeleteDialogOpen && (
+        <div className="custom-block-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Delete a Variable">
+          <div className="custom-block-dialog variable-dialog">
+            <div className="custom-block-dialog-header variable-dialog-header">
+              <div>
+                <h3>Delete Variable</h3>
+                <span>Choose a variable to remove from this project.</span>
+              </div>
+              <button onClick={() => setIsVariableDeleteDialogOpen(false)} type="button" aria-label="Close">×</button>
+            </div>
+            <div className="variable-dialog-body">
+              <label className="variable-name-field">
+                <span>Variable</span>
+                <select value={variableDeleteName} onChange={(event) => setVariableDeleteName(event.target.value)} autoFocus>
+                  {variableDeleteOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </label>
+              <p className="variable-helper-text">Deleting a variable also hides its stage watcher.</p>
+            </div>
+            <div className="custom-block-dialog-actions">
+              <button onClick={() => setIsVariableDeleteDialogOpen(false)} type="button">Cancel</button>
+              <button disabled={!variableDeleteName} onClick={submitVariableDeleteDialog} type="button">Delete variable</button>
+            </div>
+          </div>
+        </div>
+      )}
       {isListDialogOpen && (
         <div className="custom-block-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Make a List">
           <div className="custom-block-dialog variable-dialog">
@@ -3037,6 +3143,32 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
             <div className="custom-block-dialog-actions">
               <button onClick={() => setIsListDialogOpen(false)} type="button">Cancel</button>
               <button onClick={submitListDialog} type="button">Create list</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isListDeleteDialogOpen && (
+        <div className="custom-block-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Delete a List">
+          <div className="custom-block-dialog variable-dialog">
+            <div className="custom-block-dialog-header variable-dialog-header">
+              <div>
+                <h3>Delete List</h3>
+                <span>Choose a list to remove from this project.</span>
+              </div>
+              <button onClick={() => setIsListDeleteDialogOpen(false)} type="button" aria-label="Close">×</button>
+            </div>
+            <div className="variable-dialog-body">
+              <label className="variable-name-field">
+                <span>List</span>
+                <select value={listDeleteName} onChange={(event) => setListDeleteName(event.target.value)} autoFocus>
+                  {listDeleteOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </label>
+              <p className="variable-helper-text">Deleting a list also hides its stage watcher.</p>
+            </div>
+            <div className="custom-block-dialog-actions">
+              <button onClick={() => setIsListDeleteDialogOpen(false)} type="button">Cancel</button>
+              <button disabled={!listDeleteName} onClick={submitListDeleteDialog} type="button">Delete list</button>
             </div>
           </div>
         </div>

@@ -3040,7 +3040,8 @@ body {
 }
 
 .custom-block-name-field input,
-.variable-name-field input {
+.variable-name-field input,
+.variable-name-field select {
   height: 40px;
   border: 1px solid #d8dce5;
   border-radius: 10px;
@@ -3054,7 +3055,8 @@ body {
 }
 
 .custom-block-name-field input:focus,
-.variable-name-field input:focus {
+.variable-name-field input:focus,
+.variable-name-field select:focus {
   border-color: #56CBF9;
   box-shadow: 0 0 0 3px rgba(86, 203, 249, 0.16);
 }
@@ -3605,8 +3607,8 @@ body {
 }
 
 .neurix-blockly .neurix-list-row-block .blocklyPath {
-  fill: #ff661a !important;
-  stroke: #d84e0f !important;
+  fill: #ff8c1a !important;
+  stroke: #db6e00 !important;
   stroke-width: 1.5px !important;
 }
 

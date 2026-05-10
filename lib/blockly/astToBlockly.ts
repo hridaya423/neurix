@@ -1,5 +1,5 @@
 import * as Blockly from "blockly/core";
-import type { ScriptCondition, ScriptNode, ScriptValue } from "@/lib/compiler/types";
+import type { ScriptEventPrograms, ScriptNode, ScriptProgram, ScriptValue, ScriptCondition } from "@/lib/compiler/types";
 
 function setField(block: Blockly.Block, name: string, value: string | number) {
   block.setFieldValue(String(value), name);
@@ -285,6 +285,41 @@ function createStatementStack(workspace: Blockly.Workspace, nodes: ScriptNode[])
   }
 
   return first;
+}
+
+export function programsToWorkspaceState(program: ScriptProgram, cloneProgram: ScriptProgram = [], broadcastPrograms: ScriptEventPrograms = {}, backdropPrograms: ScriptEventPrograms = {}) {
+  const workspace = new Blockly.Workspace();
+
+  const stacks: Array<{ hat: Blockly.Block; body: ScriptNode[] }> = [];
+  for (const stack of program) {
+    stacks.push({ hat: workspace.newBlock("event_start"), body: stack });
+  }
+  for (const stack of cloneProgram) {
+    stacks.push({ hat: workspace.newBlock("event_clone_start"), body: stack });
+  }
+  for (const [message, stacksForMessage] of Object.entries(broadcastPrograms)) {
+    for (const stack of stacksForMessage) {
+      const hat = workspace.newBlock("event_when_broadcast");
+      hat.setFieldValue(message, "MESSAGE");
+      stacks.push({ hat, body: stack });
+    }
+  }
+  for (const [backdropId, stacksForBackdrop] of Object.entries(backdropPrograms)) {
+    for (const stack of stacksForBackdrop) {
+      const hat = workspace.newBlock("event_when_backdrop");
+      hat.setFieldValue(backdropId, "BACKDROP");
+      stacks.push({ hat, body: stack });
+    }
+  }
+
+  stacks.forEach(({ hat, body }, index) => {
+    init(hat);
+    hat.moveBy(260, 96 + index * 88);
+    const first = createStatementStack(workspace, body);
+    if (hat.nextConnection && first?.previousConnection) hat.nextConnection.connect(first.previousConnection);
+  });
+
+  return JSON.stringify(Blockly.serialization.workspaces.save(workspace));
 }
 
 export function insertAstUnderDefinition(definitionBlock: Blockly.Block, nodes: ScriptNode[]) {

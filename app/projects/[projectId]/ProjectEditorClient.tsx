@@ -48,7 +48,6 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
   const latestRef = useRef<{ name: string; document: ProjectDocument } | null>(null);
   const lastSavedRef = useRef<string | null>(null);
   const didHydrateRef = useRef(false);
-  const hydrateTimeRef = useRef(0);
   const touchedProjectRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -86,17 +85,11 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
     if (!didHydrateRef.current) {
       didHydrateRef.current = true;
       lastSavedRef.current = snapshot;
-      hydrateTimeRef.current = Date.now();
       setSaveStatus("saved");
       return;
     }
 
     if (snapshot === lastSavedRef.current) return;
-
-    if (Date.now() - hydrateTimeRef.current < 2000) {
-      lastSavedRef.current = snapshot;
-      return;
-    }
 
     setSaveStatus("idle");
   }, []);

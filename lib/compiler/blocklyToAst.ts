@@ -171,6 +171,8 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
       return { type: "listIndex", list: String(block.getFieldValue("LIST") ?? "list"), item: parseValue(block.getInputTargetBlock("ITEM"), "", bindings) };
     case "list_length":
       return { type: "listLength", list: String(block.getFieldValue("LIST") ?? "list") };
+    case "sound_volume":
+      return { type: "soundVolume" };
     default:
       return fallback;
   }
@@ -424,6 +426,30 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
         break;
       case "looks_next_costume":
         program.push({ type: "nextCostume" });
+        break;
+      case "sound_play":
+        program.push({ type: "playSound", soundId: String(block.getFieldValue("SOUND") ?? ""), wait: false });
+        break;
+      case "sound_play_until_done":
+        program.push({ type: "playSound", soundId: String(block.getFieldValue("SOUND") ?? ""), wait: true });
+        break;
+      case "sound_stop_all":
+        program.push({ type: "stopAllSounds" });
+        break;
+      case "sound_change_effect":
+        program.push({ type: "changeSoundEffect", effect: String(block.getFieldValue("EFFECT")) === "pan" ? "pan" : "pitch", amount: getValueInput(block, "AMOUNT", 10, bindings) });
+        break;
+      case "sound_set_effect":
+        program.push({ type: "setSoundEffect", effect: String(block.getFieldValue("EFFECT")) === "pan" ? "pan" : "pitch", value: getValueInput(block, "VALUE", 0, bindings) });
+        break;
+      case "sound_clear_effects":
+        program.push({ type: "clearSoundEffects" });
+        break;
+      case "sound_change_volume":
+        program.push({ type: "changeVolume", amount: getValueInput(block, "AMOUNT", -10, bindings) });
+        break;
+      case "sound_set_volume":
+        program.push({ type: "setVolume", volume: getValueInput(block, "VOLUME", 100, bindings) });
         break;
       case "variables_set":
       case "variables_set_dynamic":

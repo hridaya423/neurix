@@ -195,6 +195,32 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
       return init(block);
     case "nextCostume":
       return init(workspace.newBlock("looks_next_costume"));
+    case "playSound":
+      block = workspace.newBlock(node.wait ? "sound_play_until_done" : "sound_play");
+      setField(block, "SOUND", node.soundId);
+      return init(block);
+    case "stopAllSounds":
+      return init(workspace.newBlock("sound_stop_all"));
+    case "changeSoundEffect":
+      block = workspace.newBlock("sound_change_effect");
+      setField(block, "EFFECT", node.effect);
+      setField(block, "AMOUNT", primitive(node.amount, 10));
+      return init(block);
+    case "setSoundEffect":
+      block = workspace.newBlock("sound_set_effect");
+      setField(block, "EFFECT", node.effect);
+      setField(block, "VALUE", primitive(node.value, 0));
+      return init(block);
+    case "clearSoundEffects":
+      return init(workspace.newBlock("sound_clear_effects"));
+    case "changeVolume":
+      block = workspace.newBlock("sound_change_volume");
+      setField(block, "AMOUNT", primitive(node.amount, -10));
+      return init(block);
+    case "setVolume":
+      block = workspace.newBlock("sound_set_volume");
+      setField(block, "VOLUME", primitive(node.volume, 100));
+      return init(block);
     case "setVariable":
     case "changeVariable":
       return null;

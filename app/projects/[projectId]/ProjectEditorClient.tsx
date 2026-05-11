@@ -43,6 +43,7 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
   const convexProjectId = projectId as Id<"projects">;
   const data = useQuery(api.projects.getProject, session.data ? { projectId: convexProjectId } : "skip");
   const saveProject = useMutation(api.projects.saveProject);
+  const generateSoundUploadUrl = useMutation(api.projects.generateSoundUploadUrl);
   const touchProject = useMutation(api.projects.touchProject);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const latestRef = useRef<{ name: string; document: ProjectDocument } | null>(null);
@@ -67,16 +68,59 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
 
   const initialDocument = useMemo(() => data ? normalizeDocument(data.document) : null, [data]);
 
+  const soundStorageCacheRef = useRef(new Map<string, string>());
+
+  const dataUrlToBlob = useCallback((dataUrl: string) => {
+    const [header, base64] = dataUrl.split(",");
+    const mime = header.match(/^data:([^;]+);base64$/)?.[1] ?? "audio/wav";
+    const binary = atob(base64 ?? "");
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }, []);
+
+  const prepareDocumentForSave = useCallback(async (document: ProjectDocument): Promise<ProjectDocument> => {
+    const prepareSound = async (sound: NonNullable<ProjectDocument["stage"]["sounds"]>[number]) => {
+      if (!sound.dataUrl?.startsWith("data:")) return { ...sound, dataUrl: "" };
+      const cacheKey = `${sound.id}:${sound.dataUrl.length}:${sound.dataUrl.slice(0, 96)}:${sound.dataUrl.slice(-96)}`;
+      let storageId = soundStorageCacheRef.current.get(cacheKey);
+      if (!storageId) {
+        const uploadUrl = await generateSoundUploadUrl({ projectId: convexProjectId });
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": sound.dataFormat === "mp3" ? "audio/mpeg" : "audio/wav" },
+          body: dataUrlToBlob(sound.dataUrl),
+        });
+        if (!response.ok) throw new Error("Could not upload sound asset.");
+        storageId = (await response.json() as { storageId: string }).storageId;
+        soundStorageCacheRef.current.set(cacheKey, storageId);
+      }
+      return { ...sound, storageId, dataUrl: "" };
+    };
+
+    const stageSounds = await Promise.all((document.stage.sounds ?? []).map(prepareSound));
+    const sprites = await Promise.all(document.sprites.map(async (sprite) => ({
+      ...sprite,
+      sounds: await Promise.all((sprite.sounds ?? []).map(prepareSound)),
+    })));
+    return {
+      ...document,
+      stage: { ...document.stage, sounds: stageSounds },
+      sprites,
+    };
+  }, [convexProjectId, dataUrlToBlob, generateSoundUploadUrl]);
+
   const persist = useCallback(async (name: string, document: ProjectDocument) => {
     setSaveStatus("saving");
     try {
-      await saveProject({ projectId: convexProjectId, name, document });
+      const documentForSave = await prepareDocumentForSave(document);
+      await saveProject({ projectId: convexProjectId, name, document: documentForSave });
       lastSavedRef.current = JSON.stringify({ name, document });
       setSaveStatus("saved");
     } catch {
       setSaveStatus("error");
     }
-  }, [convexProjectId, saveProject]);
+  }, [convexProjectId, prepareDocumentForSave, saveProject]);
 
   const handleChange = useCallback((name: string, document: ProjectDocument) => {
     const snapshot = JSON.stringify({ name, document });

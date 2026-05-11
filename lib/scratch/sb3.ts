@@ -24,7 +24,15 @@ type ScratchTarget = {
     rotationCenterX: number;
     rotationCenterY: number;
   }>;
-  sounds: unknown[];
+  sounds: Array<{
+    assetId: string;
+    name: string;
+    dataFormat: "wav" | "mp3";
+    format?: string;
+    rate?: number;
+    sampleCount?: number;
+    md5ext: string;
+  }>;
   volume: number;
   layerOrder: number;
   tempo?: number;
@@ -180,6 +188,7 @@ const supportedReporterOpcodes = new Set<string>([
   "sensing_distancetomenu",
   "sensing_keyoptions",
   "sensing_of_object_menu",
+  "sound_sounds_menu",
   "argument_reporter_string_number",
   "argument_reporter_boolean",
   "procedures_callreturn",
@@ -239,6 +248,16 @@ function parseDataUrl(source: string): { format: "svg" | "png" | "jpg"; bytes: U
   return { format, bytes };
 }
 
+function parseAudioDataUrl(source: string): { format: "wav" | "mp3"; bytes: Uint8Array } | null {
+  const match = source.match(/^data:audio\/(x-wav|wav|wave|mpeg|mp3);base64,(.+)$/i);
+  if (!match) return null;
+  const format = match[1].toLowerCase() === "mpeg" || match[1].toLowerCase() === "mp3" ? "mp3" : "wav";
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return { format, bytes };
+}
+
 function toSvgBytesFromFill(name: string, fill: string) {
   const safeFill = fill || "#f5f5f7";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360" viewBox="0 0 480 360"><rect width="480" height="360" fill="${safeFill}"/><text x="20" y="34" fill="#1d1d1f" font-size="16" font-family="Helvetica, Arial, sans-serif">${name}</text></svg>`;
@@ -265,6 +284,25 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
     const md5ext = `${assetId}.${format}`;
     zip.file(md5ext, bytes);
     return { assetId, md5ext, dataFormat: format };
+  };
+
+  const addSoundAsset = async (sound: { name: string; dataUrl: string; dataFormat?: "wav" | "mp3"; rate?: number; sampleCount?: number }, fallbackName: string) => {
+    const parsed = parseAudioDataUrl(sound.dataUrl);
+    const fetchedBytes = !parsed && sound.dataUrl ? new Uint8Array(await (await fetch(sound.dataUrl)).arrayBuffer()) : null;
+    const format = parsed?.format ?? sound.dataFormat ?? "wav";
+    const assetId = `sound_${assetIndex.toString().padStart(4, "0")}`;
+    assetIndex += 1;
+    const md5ext = `${assetId}.${format}`;
+    zip.file(md5ext, parsed?.bytes ?? fetchedBytes ?? new Uint8Array());
+    return {
+      assetId,
+      name: sound.name || fallbackName,
+      dataFormat: format,
+      format: "",
+      rate: sound.rate ?? 44100,
+      sampleCount: sound.sampleCount ?? 0,
+      md5ext,
+    };
   };
 
   const stageVariables: Record<string, ScratchVariableTuple> = {};
@@ -300,6 +338,8 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
     };
   });
 
+  const stageSounds = await Promise.all((stage.sounds ?? []).map((sound, index) => addSoundAsset(sound, `Sound ${index + 1}`)));
+
   const stageTarget: ScratchTarget = {
     isStage: true,
     name: "Stage",
@@ -316,7 +356,7 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
       rotationCenterX: 240,
       rotationCenterY: 180,
     }],
-    sounds: [],
+    sounds: stageSounds,
     volume: 100,
     layerOrder: 0,
     tempo: 60,
@@ -325,7 +365,7 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
     textToSpeechLanguage: null,
   };
 
-  const spriteTargets: ScratchTarget[] = document.sprites.map((sprite, spriteIndex) => {
+  const spriteTargets: ScratchTarget[] = await Promise.all(document.sprites.map(async (sprite, spriteIndex) => {
     const spriteVariables: Record<string, ScratchVariableTuple> = {};
     const spriteLists: Record<string, ScratchListTuple> = {};
     let spriteVarIndex = 0;
@@ -373,7 +413,7 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
         rotationCenterX: 240,
         rotationCenterY: 180,
       }],
-      sounds: [],
+      sounds: await Promise.all((sprite.sounds ?? []).map((sound, soundIndex) => addSoundAsset(sound, `Sound ${soundIndex + 1}`))),
       volume: 100,
       layerOrder: sprite.layer ?? spriteIndex + 1,
       x: sprite.x,
@@ -384,7 +424,7 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
       rotationStyle: "all around",
       visible: sprite.visible,
     };
-  });
+  }));
 
   const scratchProject: ScratchProjectJson = {
     targets: [stageTarget, ...spriteTargets],
@@ -411,6 +451,14 @@ function toDataUrl(bytes: Uint8Array, format: "svg" | "png" | "jpg") {
   return `data:${mime};base64,${base64}`;
 }
 
+function toAudioDataUrl(bytes: Uint8Array, format: "wav" | "mp3") {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  const base64 = btoa(binary);
+  const mime = format === "mp3" ? "audio/mpeg" : "audio/wav";
+  return `data:${mime};base64,${base64}`;
+}
+
 function parseScratchVariables(target: ScratchTarget, spriteName?: string) {
   const entries = Object.values(target.variables ?? {});
   const out: Record<string, number | string> = {};
@@ -433,6 +481,24 @@ function parseScratchLists(target: ScratchTarget, spriteName?: string) {
     out[scoped] = Array.isArray(entry?.[1]) ? entry[1] : [];
   }
   return out;
+}
+
+async function parseScratchSounds(target: ScratchTarget, zip: JSZip) {
+  return await Promise.all((target.sounds ?? []).map(async (sound, index) => {
+    const asset = zip.file(sound.md5ext);
+    const bytes = asset ? new Uint8Array(await asset.async("uint8array")) : new Uint8Array();
+    const format = (sound.dataFormat || "wav") as "wav" | "mp3";
+    return {
+      id: `sound-${index + 1}`,
+      name: sound.name || `Sound ${index + 1}`,
+      dataUrl: toAudioDataUrl(bytes, format),
+      dataFormat: format,
+      rate: sound.rate,
+      sampleCount: sound.sampleCount,
+      duration: sound.rate && sound.sampleCount ? sound.sampleCount / sound.rate : undefined,
+      assetId: sound.assetId,
+    };
+  }));
 }
 
 function getFieldValue(block: ScratchBlock | undefined, name: string) {
@@ -484,6 +550,12 @@ function readInputValue(block: ScratchBlock | undefined, name: string, blocks: R
   const blockId = readInputBlockId(block, name);
   if (blockId) return parseReporter(blockId, blocks);
   return readInputLiteral(block, name) ?? 0;
+}
+
+function readSoundName(block: ScratchBlock | undefined, blocks: Record<string, ScratchBlock>) {
+  const menuId = readInputBlockId(block, "SOUND_MENU");
+  const menu = menuId ? blocks[menuId] : undefined;
+  return getFieldValue(menu, "SOUND_MENU") || getFieldValue(block, "SOUND_MENU") || getFieldValue(block, "SOUND") || "sound-1";
 }
 
 function parseCondition(blockId: string | null, blocks: Record<string, ScratchBlock>): ScriptCondition {
@@ -616,7 +688,7 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
     case "sensing_username":
       return "";
     case "sound_volume":
-      return 100;
+      return { type: "soundVolume" };
     case "sensing_distanceto":
       return { type: "sensing", property: "distanceToCenter" };
     case "sensing_touchingobjectmenu":
@@ -627,6 +699,8 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
       return getFieldValue(block, "KEY_OPTION");
     case "sensing_of_object_menu":
       return getFieldValue(block, "OBJECT");
+    case "sound_sounds_menu":
+      return getFieldValue(block, "SOUND_MENU");
     case "argument_reporter_string_number":
       return getFieldValue(block, "VALUE");
     case "argument_reporter_boolean":
@@ -791,20 +865,40 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
       case "data_hidelist":
         nodes.push({ type: "hideList", list: getFieldValue(block, "LIST") });
         break;
+      case "sound_play":
+        nodes.push({ type: "playSound", soundId: readSoundName(block, blocks), wait: false });
+        break;
+      case "sound_playuntildone":
+        nodes.push({ type: "playSound", soundId: readSoundName(block, blocks), wait: true });
+        break;
+      case "sound_stopallsounds":
+        nodes.push({ type: "stopAllSounds" });
+        break;
+      case "sound_changeeffectby": {
+        const effect = getFieldValue(block, "EFFECT").toLowerCase().includes("pan") ? "pan" : "pitch";
+        nodes.push({ type: "changeSoundEffect", effect, amount: readInputValue(block, "VALUE", blocks) });
+        break;
+      }
+      case "sound_seteffectto": {
+        const effect = getFieldValue(block, "EFFECT").toLowerCase().includes("pan") ? "pan" : "pitch";
+        nodes.push({ type: "setSoundEffect", effect, value: readInputValue(block, "VALUE", blocks) });
+        break;
+      }
+      case "sound_cleareffects":
+        nodes.push({ type: "clearSoundEffects" });
+        break;
+      case "sound_changevolumeby":
+        nodes.push({ type: "changeVolume", amount: readInputValue(block, "VOLUME", blocks) });
+        break;
+      case "sound_setvolumeto":
+        nodes.push({ type: "setVolume", volume: readInputValue(block, "VOLUME", blocks) });
+        break;
       case "data_showvariable":
       case "data_hidevariable":
       case "control_stop":
       case "looks_changeeffectby":
       case "looks_seteffectto":
       case "looks_cleargraphiceffects":
-      case "sound_play":
-      case "sound_playuntildone":
-      case "sound_stopallsounds":
-      case "sound_changeeffectby":
-      case "sound_seteffectto":
-      case "sound_cleareffects":
-      case "sound_changevolumeby":
-      case "sound_setvolumeto":
       case "pen_clear":
       case "pen_stamp":
       case "pen_pendown":
@@ -921,6 +1015,7 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
 
   const spriteTargets = parsed.targets.filter((target) => !target.isStage);
   const stagePrograms = parseScratchTargetPrograms(stageTarget as ScratchTargetWithBlocks);
+  const stageSounds = await parseScratchSounds(stageTarget, zip);
   const sprites = await Promise.all(spriteTargets.map(async (target, targetIndex) => {
     const spritePrograms = parseScratchTargetPrograms(target as ScratchTargetWithBlocks);
     const costumes = await Promise.all((target.costumes ?? []).map(async (costume, index) => {
@@ -947,6 +1042,8 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
       layer: target.layerOrder ?? targetIndex,
       tone: "#56CBF9",
       visible: target.visible !== false,
+      sounds: await parseScratchSounds(target, zip),
+      volume: typeof target.volume === "number" ? target.volume : 100,
       workspaceState: programsToWorkspaceState(spritePrograms.start, spritePrograms.cloneStart, spritePrograms.broadcasts, spritePrograms.backdrops),
       program: spritePrograms.start,
       cloneProgram: spritePrograms.cloneStart,
@@ -978,6 +1075,8 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
       program: stagePrograms.start,
       broadcastPrograms: stagePrograms.broadcasts,
       backdropPrograms: stagePrograms.backdrops,
+      sounds: stageSounds,
+      volume: typeof stageTarget.volume === "number" ? stageTarget.volume : 100,
     },
     sprites,
   };

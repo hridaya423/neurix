@@ -61,6 +61,8 @@ function valueToJs(value: ScriptValue): string {
       return `(api.getList(${jsString(value.list)}).findIndex((item) => String(item) === String(${valueToJs(value.item)})) + 1)`;
     case "listLength":
       return `api.getList(${jsString(value.list)}).length`;
+    case "soundVolume":
+      return "api.getVolume?.() ?? 100";
   }
 }
 
@@ -203,6 +205,20 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `sprite.switchCostume(${jsString(node.costumeId)});`)];
       case "nextCostume":
         return [line(depth, "sprite.nextCostume();")];
+      case "playSound":
+        return [line(depth, `${node.wait ? "await " : ""}api.playSound?.(${jsString(node.soundId)}, ${String(node.wait)});`)];
+      case "stopAllSounds":
+        return [line(depth, "api.stopAllSounds?.();")];
+      case "changeSoundEffect":
+        return [line(depth, `api.changeSoundEffect?.(${jsString(node.effect)}, Number(${valueToJs(node.amount)}) || 0);`)];
+      case "setSoundEffect":
+        return [line(depth, `api.setSoundEffect?.(${jsString(node.effect)}, Number(${valueToJs(node.value)}) || 0);`)];
+      case "clearSoundEffects":
+        return [line(depth, "api.clearSoundEffects?.();")];
+      case "changeVolume":
+        return [line(depth, `api.changeVolume?.(Number(${valueToJs(node.amount)}) || 0);`)];
+      case "setVolume":
+        return [line(depth, `api.setVolume?.(Number(${valueToJs(node.volume)}) || 0);`)];
       case "setVariable":
         return [line(depth, `vars[${jsString(node.name)}] = ${valueToJs(node.value)};`)];
       case "changeVariable":

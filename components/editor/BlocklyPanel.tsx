@@ -20,6 +20,7 @@ type BlocklyPanelProps = {
   targetType?: "sprite" | "stage";
   backdrops: { id: string; name: string }[];
   costumes?: { id: string; name: string }[];
+  sounds?: { id: string; name: string }[];
   variableNames?: string[];
   cloudVariableNames?: string[];
   listNames?: string[];
@@ -90,6 +91,7 @@ const KEY_OPTIONS = [
 
 const backdropOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
 const costumeOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
+const soundOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
 const listOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
 const variableControlsByWorkspace = new WeakMap<Blockly.Workspace, {
   visibleNames: Set<string>;
@@ -818,6 +820,75 @@ const CUSTOM_BLOCKS = [
     style: "list_blocks",
   },
   {
+    type: "sound_play",
+    message0: "start sound %1",
+    args0: [{ type: "field_dropdown", name: "SOUND", options: [["Sound 1", "sound-1"]] }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  {
+    type: "sound_play_until_done",
+    message0: "play sound %1 until done",
+    args0: [{ type: "field_dropdown", name: "SOUND", options: [["Sound 1", "sound-1"]] }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  {
+    type: "sound_stop_all",
+    message0: "stop all sounds",
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  {
+    type: "sound_change_effect",
+    message0: "change %1 effect by %2",
+    args0: [
+      { type: "field_dropdown", name: "EFFECT", options: [["pitch", "pitch"], ["pan left/right", "pan"]] },
+      { type: "input_value", name: "AMOUNT", check: "Number" },
+    ],
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  {
+    type: "sound_set_effect",
+    message0: "set %1 effect to %2",
+    args0: [
+      { type: "field_dropdown", name: "EFFECT", options: [["pitch", "pitch"], ["pan left/right", "pan"]] },
+      { type: "input_value", name: "VALUE", check: "Number" },
+    ],
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  {
+    type: "sound_clear_effects",
+    message0: "clear sound effects",
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  {
+    type: "sound_change_volume",
+    message0: "change volume by %1",
+    args0: [{ type: "input_value", name: "AMOUNT", check: "Number" }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  {
+    type: "sound_set_volume",
+    message0: "set volume to %1 %",
+    args0: [{ type: "input_value", name: "VOLUME", check: "Number" }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "sound_blocks",
+  },
+  { type: "sound_volume", message0: "volume", output: "Number", style: "sound_blocks" },
+  {
     type: "ai_define",
     message0: "define %1",
     args0: [
@@ -922,6 +993,22 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "control_forever" },
         { kind: "block", type: "control_if" },
         { kind: "block", type: "control_if_else" },
+      ],
+    },
+    {
+      kind: "category",
+      name: "Sound",
+      categorystyle: "sound_category",
+      contents: [
+        { kind: "block", type: "sound_play" },
+        { kind: "block", type: "sound_play_until_done" },
+        { kind: "block", type: "sound_stop_all" },
+        { kind: "block", type: "sound_change_effect", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: 10 } } } } },
+        { kind: "block", type: "sound_set_effect", inputs: { VALUE: { shadow: { type: "math_number", fields: { NUM: 0 } } } } },
+        { kind: "block", type: "sound_clear_effects" },
+        { kind: "block", type: "sound_change_volume", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: -10 } } } } },
+        { kind: "block", type: "sound_set_volume", inputs: { VOLUME: { shadow: { type: "math_number", fields: { NUM: 100 } } } } },
+        { kind: "block", type: "sound_volume" },
       ],
     },
     {
@@ -1042,6 +1129,22 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
     },
     {
       kind: "category",
+      name: "Sound",
+      categorystyle: "sound_category",
+      contents: [
+        { kind: "block", type: "sound_play" },
+        { kind: "block", type: "sound_play_until_done" },
+        { kind: "block", type: "sound_stop_all" },
+        { kind: "block", type: "sound_change_effect", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: 10 } } } } },
+        { kind: "block", type: "sound_set_effect", inputs: { VALUE: { shadow: { type: "math_number", fields: { NUM: 0 } } } } },
+        { kind: "block", type: "sound_clear_effects" },
+        { kind: "block", type: "sound_change_volume", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: -10 } } } } },
+        { kind: "block", type: "sound_set_volume", inputs: { VOLUME: { shadow: { type: "math_number", fields: { NUM: 100 } } } } },
+        { kind: "block", type: "sound_volume" },
+      ],
+    },
+    {
+      kind: "category",
       name: "Sensing",
       categorystyle: "sensing_category",
       contents: [
@@ -1149,6 +1252,11 @@ const THEME = Blockly.Theme.defineTheme("neurix_light", {
       colourSecondary: "#47A8D1",
       colourTertiary: "#2E8EB8",
     },
+    sound_blocks: {
+      colourPrimary: "#CF63CF",
+      colourSecondary: "#C94FC9",
+      colourTertiary: "#BD42BD",
+    },
     custom_blocks: {
       colourPrimary: "#FF6680",
       colourSecondary: "#FF4D6A",
@@ -1180,6 +1288,7 @@ const THEME = Blockly.Theme.defineTheme("neurix_light", {
     motion_category: { colour: "#59C059" },
     looks_category: { colour: "#9966FF" },
     control_category: { colour: "#FFAB19" },
+    sound_category: { colour: "#CF63CF" },
     sensing_category: { colour: "#5CB1D6" },
     operators_category: { colour: "#40BF4A" },
     custom_category: { colour: "#FF6680" },
@@ -1603,6 +1712,12 @@ function costumeMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
   return costumeOptionsByWorkspace.get(sourceBlock.workspace) ?? [["Costume 1", "costume-1"]];
 }
 
+function soundMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
+  const sourceBlock = this.getSourceBlock();
+  if (!sourceBlock) return [["Sound 1", "sound-1"]];
+  return soundOptionsByWorkspace.get(sourceBlock.workspace) ?? [["Sound 1", "sound-1"]];
+}
+
 function listMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
   const sourceBlock = this.getSourceBlock();
   if (!sourceBlock) return [["list", "list"]];
@@ -1619,6 +1734,12 @@ function formatCostumeOptions(costumes: { id: string; name: string }[]) {
   return costumes.length > 0
     ? costumes.map((costume, index) => [costume.name.trim() || `Costume ${index + 1}`, costume.id] as [string, string])
     : [["Costume 1", "costume-1"] as [string, string]];
+}
+
+function formatSoundOptions(sounds: { id: string; name: string }[]) {
+  return sounds.length > 0
+    ? sounds.map((sound, index) => [sound.name.trim() || `Sound ${index + 1}`, sound.id] as [string, string])
+    : [["Sound 1", "sound-1"] as [string, string]];
 }
 
 function formatListOptions(lists: string[]) {
@@ -1656,6 +1777,21 @@ function refreshCostumeFields(workspace: Blockly.Workspace, costumes: { id: stri
     field.setOptions(costumeMenuGenerator);
     if (!ids.has(field.getValue() ?? "")) {
       field.setValue(options[0][1]);
+    }
+  }
+}
+
+function refreshSoundFields(workspace: Blockly.Workspace, sounds: { id: string; name: string }[]) {
+  const options = formatSoundOptions(sounds);
+  const ids = new Set(options.map(([, id]) => id));
+  soundOptionsByWorkspace.set(workspace, options);
+
+  for (const type of ["sound_play", "sound_play_until_done"]) {
+    for (const block of workspace.getBlocksByType(type, false)) {
+      const field = block.getField("SOUND") as Blockly.FieldDropdown | null;
+      if (!field) continue;
+      field.setOptions(soundMenuGenerator);
+      if (!ids.has(field.getValue() ?? "")) field.setValue(options[0][1]);
     }
   }
 }
@@ -2266,7 +2402,7 @@ async function readTextStream(response: Response, onChunk: (text: string) => voi
   }
 }
 
-export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], variableNames = [], cloudVariableNames = [], listNames = [], visibleWatcherNames = [], visibleListWatcherNames = [], workspaceState, onWorkspaceChange, onVariableCreate, onCloudVariableCreate, onVariableDelete, onVariableWatcherToggle, onListWatcherVisibleChange, onListCreate, onListDelete }: BlocklyPanelProps) {
+export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], sounds = [], variableNames = [], cloudVariableNames = [], listNames = [], visibleWatcherNames = [], visibleListWatcherNames = [], workspaceState, onWorkspaceChange, onVariableCreate, onCloudVariableCreate, onVariableDelete, onVariableWatcherToggle, onListWatcherVisibleChange, onListCreate, onListDelete }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
@@ -2275,6 +2411,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
   const onWorkspaceChangeRef = useRef(onWorkspaceChange);
   const backdropsRef = useRef(backdrops);
   const costumesRef = useRef(costumes);
+  const soundsRef = useRef(sounds);
   const variableNamesRef = useRef(variableNames);
   const cloudVariableNamesRef = useRef(cloudVariableNames);
   const listNamesRef = useRef(listNames);
@@ -2327,6 +2464,15 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       workspace.refreshToolboxSelection();
     }
   }, [costumes]);
+
+  useEffect(() => {
+    soundsRef.current = sounds;
+    const workspace = workspaceRef.current;
+    if (workspace) {
+      refreshSoundFields(workspace, sounds);
+      workspace.refreshToolboxSelection();
+    }
+  }, [sounds]);
 
   useEffect(() => {
     variableNamesRef.current = variableNames;
@@ -2701,6 +2847,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     workspaceRef.current = workspace;
     refreshBackdropFields(workspace, backdropsRef.current);
     refreshCostumeFields(workspace, costumesRef.current);
+    refreshSoundFields(workspace, soundsRef.current);
     refreshListFields(workspace, listNamesRef.current);
     variableControlsByWorkspace.set(workspace, {
       visibleNames: new Set(visibleWatcherNamesRef.current),

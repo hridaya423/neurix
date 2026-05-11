@@ -19,7 +19,8 @@ export type ScriptValue =
   | { type: "lengthOf"; text: ScriptValue }
   | { type: "listItem"; list: string; index: ScriptValue }
   | { type: "listIndex"; list: string; item: ScriptValue }
-  | { type: "listLength"; list: string };
+  | { type: "listLength"; list: string }
+  | { type: "soundVolume" };
 
 export type ScriptCondition =
   | { type: "keyPressed"; key: KeyName }
@@ -69,6 +70,13 @@ export type ScriptNode =
   | { type: "broadcastAndWait"; message: string }
   | { type: "switchCostume"; costumeId: string }
   | { type: "nextCostume" }
+  | { type: "playSound"; soundId: string; wait: boolean }
+  | { type: "stopAllSounds" }
+  | { type: "changeSoundEffect"; effect: "pitch" | "pan"; amount: ScriptValue }
+  | { type: "setSoundEffect"; effect: "pitch" | "pan"; value: ScriptValue }
+  | { type: "clearSoundEffects" }
+  | { type: "changeVolume"; amount: ScriptValue }
+  | { type: "setVolume"; volume: ScriptValue }
   | { type: "setTone"; tone: string }
   | { type: "changeTone"; amount: ScriptValue }
   | { type: "setVariable"; name: string; value: ScriptValue }

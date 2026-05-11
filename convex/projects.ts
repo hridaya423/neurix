@@ -23,6 +23,20 @@ type SavedSprite = {
   lists?: unknown;
   costumes?: SpriteCostume[];
   currentCostumeId?: string;
+  sounds?: ProjectSound[];
+  volume?: number;
+};
+
+type ProjectSound = {
+  id: string;
+  name: string;
+  dataUrl: string;
+  dataFormat: "wav" | "mp3";
+  storageId?: string;
+  rate?: number;
+  sampleCount?: number;
+  duration?: number;
+  assetId?: string;
 };
 
 type SpriteCostume = {
@@ -51,7 +65,7 @@ function defaultCostume(tone: string): SpriteCostume {
 
 function initialSprite(sprite: Omit<SavedSprite, "costumes" | "currentCostumeId">): SavedSprite {
   const costume = defaultCostume(sprite.tone);
-  return { ...sprite, costumes: [costume], currentCostumeId: costume.id };
+  return { ...sprite, costumes: [costume], currentCostumeId: costume.id, sounds: [], volume: 100 };
 }
 
 const initialBackdrop = {
@@ -77,6 +91,8 @@ const stage = {
   program: [],
   broadcastPrograms: {},
   backdropPrograms: {},
+  sounds: [],
+  volume: 100,
 };
 
 const initialSprites: SavedSprite[] = [
@@ -107,6 +123,18 @@ const costume = v.object({
   rotationCenterY: v.optional(v.number()),
 });
 
+const sound = v.object({
+  id: v.string(),
+  name: v.string(),
+  dataUrl: v.string(),
+  dataFormat: v.union(v.literal("wav"), v.literal("mp3")),
+  storageId: v.optional(v.string()),
+  rate: v.optional(v.number()),
+  sampleCount: v.optional(v.number()),
+  duration: v.optional(v.number()),
+  assetId: v.optional(v.string()),
+});
+
 const sprite = v.object({
   id: v.string(),
   name: v.string(),
@@ -126,6 +154,8 @@ const sprite = v.object({
   lists: v.optional(v.any()),
   costumes: v.optional(v.array(costume)),
   currentCostumeId: v.optional(v.string()),
+  sounds: v.optional(v.array(sound)),
+  volume: v.optional(v.number()),
 });
 
 const backdrop = v.object({
@@ -158,6 +188,8 @@ const documentArg = v.object({
     program: v.optional(v.array(v.any())),
     broadcastPrograms: v.optional(v.any()),
     backdropPrograms: v.optional(v.any()),
+    sounds: v.optional(v.array(sound)),
+    volume: v.optional(v.number()),
   }),
   sprites: v.array(sprite),
 });
@@ -237,6 +269,28 @@ async function replaceProjectSprites(
   }
 }
 
+async function hydrateSounds(ctx: QueryCtx, sounds: ProjectSound[] | undefined) {
+  if (!Array.isArray(sounds)) return [];
+  return await Promise.all(sounds.map(async (sound) => ({
+    ...sound,
+    dataUrl: sound.storageId ? await ctx.storage.getUrl(sound.storageId as Id<"_storage">) ?? sound.dataUrl : sound.dataUrl,
+  })));
+}
+
+async function hydrateDocumentSounds(ctx: QueryCtx, document: NonNullable<Awaited<ReturnType<typeof getDocument>>>, sprites: SavedSprite[]) {
+  return {
+    ...document,
+    stage: {
+      ...document.stage,
+      sounds: await hydrateSounds(ctx, document.stage.sounds),
+    },
+    sprites: await Promise.all(sprites.map(async (sprite) => ({
+      ...sprite,
+      sounds: await hydrateSounds(ctx, sprite.sounds),
+    }))),
+  };
+}
+
 export const listProjects = query({
   args: {},
   handler: async (ctx) => {
@@ -261,13 +315,19 @@ export const getProject = query({
       throw new Error("Project document not found.");
     }
 
+    const sprites = await getProjectSprites(ctx, args.projectId);
     return {
       project,
-      document: {
-        ...document,
-        sprites: await getProjectSprites(ctx, args.projectId),
-      },
+      document: await hydrateDocumentSounds(ctx, document, sprites),
     };
+  },
+});
+
+export const generateSoundUploadUrl = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProject(ctx, args.projectId);
+    return await ctx.storage.generateUploadUrl();
   },
 });
 

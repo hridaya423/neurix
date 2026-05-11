@@ -10,6 +10,18 @@ const costume = v.object({
   rotationCenterY: v.optional(v.number()),
 });
 
+const sound = v.object({
+  id: v.string(),
+  name: v.string(),
+  dataUrl: v.string(),
+  dataFormat: v.union(v.literal("wav"), v.literal("mp3")),
+  storageId: v.optional(v.string()),
+  rate: v.optional(v.number()),
+  sampleCount: v.optional(v.number()),
+  duration: v.optional(v.number()),
+  assetId: v.optional(v.string()),
+});
+
 const sprite = v.object({
   id: v.string(),
   name: v.string(),
@@ -29,6 +41,8 @@ const sprite = v.object({
   lists: v.optional(v.any()),
   costumes: v.optional(v.array(costume)),
   currentCostumeId: v.optional(v.string()),
+  sounds: v.optional(v.array(sound)),
+  volume: v.optional(v.number()),
 });
 
 const backdrop = v.object({
@@ -75,6 +89,8 @@ export default defineSchema({
       program: v.optional(v.array(v.any())),
       broadcastPrograms: v.optional(v.any()),
       backdropPrograms: v.optional(v.any()),
+      sounds: v.optional(v.array(sound)),
+      volume: v.optional(v.number()),
     }),
     updatedAt: v.number(),
   }).index("by_projectId", ["projectId"]),

@@ -50,6 +50,14 @@ export type ScriptRuntime = {
   broadcast: (message: string, waitForCompletion: boolean) => Promise<void>;
   switchCostume: (costumeId: string) => void;
   nextCostume: () => void;
+  playSound?: (soundId: string, waitForCompletion: boolean) => Promise<void>;
+  stopAllSounds?: () => void;
+  changeSoundEffect?: (effect: "pitch" | "pan", amount: number) => void;
+  setSoundEffect?: (effect: "pitch" | "pan", value: number) => void;
+  clearSoundEffects?: () => void;
+  changeVolume?: (amount: number) => void;
+  setVolume?: (volume: number) => void;
+  getVolume?: () => number;
   show: () => void;
   hide: () => void;
 };
@@ -163,6 +171,8 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
     }
     case "listLength":
       return runtime.getList(value.list).length;
+    case "soundVolume":
+      return runtime.getVolume?.() ?? 100;
   }
 }
 
@@ -362,6 +372,27 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "nextCostume":
       runtime.nextCostume();
+      break;
+    case "playSound":
+      await runtime.playSound?.(node.soundId, node.wait);
+      break;
+    case "stopAllSounds":
+      runtime.stopAllSounds?.();
+      break;
+    case "changeSoundEffect":
+      runtime.changeSoundEffect?.(node.effect, toNumber(valueOf(node.amount, runtime, variables)));
+      break;
+    case "setSoundEffect":
+      runtime.setSoundEffect?.(node.effect, toNumber(valueOf(node.value, runtime, variables)));
+      break;
+    case "clearSoundEffects":
+      runtime.clearSoundEffects?.();
+      break;
+    case "changeVolume":
+      runtime.changeVolume?.(toNumber(valueOf(node.amount, runtime, variables)));
+      break;
+    case "setVolume":
+      runtime.setVolume?.(toNumber(valueOf(node.volume, runtime, variables)));
       break;
     case "setVariable":
       if (isCloudVariableName(node.name)) {

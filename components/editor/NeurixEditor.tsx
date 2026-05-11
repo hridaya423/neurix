@@ -5,6 +5,8 @@ import type { CSSProperties, ChangeEvent, PointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlocklyPanel } from "./BlocklyPanel";
 import { ScratchPaintBackdropEditor } from "./ScratchPaintBackdropEditor";
+import { ScratchSoundEditor } from "./ScratchSoundEditor";
+import type { ProjectSound } from "@/lib/audio/soundTypes";
 import type { ScriptEventPrograms, ScriptNode, ScriptProgram } from "@/lib/compiler/types";
 import { runScript } from "@/lib/runtime/interpreter";
 import { exportProjectToSb3, getSb3FileName, importProjectFromSb3 } from "@/lib/scratch/sb3";
@@ -109,6 +111,8 @@ export type SavedSprite = {
   lists?: Record<string, RuntimeValue[]>;
   costumes?: SpriteCostume[];
   currentCostumeId?: string;
+  sounds?: ProjectSound[];
+  volume?: number;
   sayText?: string;
   isClone?: boolean;
   sourceId?: string;
@@ -133,6 +137,8 @@ export type ProjectDocument = {
     program?: ScriptProgram;
     broadcastPrograms?: ScriptEventPrograms;
     backdropPrograms?: ScriptEventPrograms;
+    sounds?: ProjectSound[];
+    volume?: number;
   };
   sprites: SavedSprite[];
 };
@@ -168,7 +174,7 @@ function defaultCostume(tone: string, name = "Costume 1", id = "costume-1"): Spr
 
 function initialSprite(sprite: Omit<SavedSprite, "costumes" | "currentCostumeId">): SavedSprite {
   const costume = defaultCostume(sprite.tone);
-  return { ...sprite, costumes: [costume], currentCostumeId: costume.id };
+  return { ...sprite, costumes: [costume], currentCostumeId: costume.id, sounds: [], volume: 100 };
 }
 
 const initialSprites: SavedSprite[] = [
@@ -222,6 +228,27 @@ function normalizeLists(lists: unknown): Record<string, RuntimeValue[]> {
       ? [[key, value.filter((item): item is RuntimeValue => typeof item === "number" || typeof item === "string")]]
       : []),
   );
+}
+
+function normalizeSounds(sounds: unknown): ProjectSound[] {
+  if (!Array.isArray(sounds)) return [];
+  return sounds.flatMap((sound, index) => {
+    if (!sound || typeof sound !== "object") return [];
+    const item = sound as Partial<ProjectSound>;
+    const dataUrl = typeof item.dataUrl === "string" ? item.dataUrl : "";
+    if (!dataUrl) return [];
+    return [{
+      id: String(item.id ?? `sound-${index + 1}`),
+      name: String(item.name ?? `Sound ${index + 1}`).trim() || `Sound ${index + 1}`,
+      dataUrl,
+      dataFormat: item.dataFormat === "mp3" ? "mp3" : "wav",
+      storageId: typeof item.storageId === "string" ? item.storageId : undefined,
+      rate: typeof item.rate === "number" ? item.rate : undefined,
+      sampleCount: typeof item.sampleCount === "number" ? item.sampleCount : undefined,
+      duration: typeof item.duration === "number" ? item.duration : undefined,
+      assetId: typeof item.assetId === "string" ? item.assetId : undefined,
+    }];
+  });
 }
 
 function normalizeWatchers(watchers: unknown): VariableWatcher[] {
@@ -285,6 +312,8 @@ function normalizeSprite(sprite: SavedSprite, index = 0): SavedSprite {
     lists: normalizeLists(sprite.lists),
     costumes,
     currentCostumeId,
+    sounds: normalizeSounds(sprite.sounds),
+    volume: typeof sprite.volume === "number" ? clamp(sprite.volume, 0, 100) : 100,
   };
 }
 
@@ -321,8 +350,10 @@ function moveSpriteByLayers(sprites: SavedSprite[], spriteId: string, direction:
 const stageRange = { minX: -240, maxX: 240, minY: -180, maxY: 180 };
 
 const backdropCanvas = { width: 480, height: 360, pixelColumns: 48, pixelRows: 36 };
-type WorkspaceTab = "scripts" | "art";
+type WorkspaceTab = "scripts" | "art" | "sounds";
 type ActiveTarget = "sprite" | "stage";
+type SoundEffects = { pitch: number; pan: number };
+type PlayingSound = { source: AudioBufferSourceNode; gain: GainNode; targetId: string };
 
 function createBackdropSvg(fill: string) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${backdropCanvas.width}" height="${backdropCanvas.height}" viewBox="0 0 ${backdropCanvas.width} ${backdropCanvas.height}"><rect width="${backdropCanvas.width}" height="${backdropCanvas.height}" fill="${fill}"/></svg>`;
@@ -500,6 +531,8 @@ function normalizeStage(stage: ProjectDocument["stage"]): ProjectDocument["stage
     program: normalizeProgram(stage.program),
     broadcastPrograms: normalizeProgramMap(stage.broadcastPrograms),
     backdropPrograms: normalizeProgramMap(stage.backdropPrograms),
+    sounds: normalizeSounds(stage.sounds),
+    volume: typeof stage.volume === "number" ? clamp(stage.volume, 0, 100) : 100,
   };
 }
 
@@ -558,7 +591,7 @@ export function createDefaultProjectDocument(): ProjectDocument {
     lists: {},
     variableWatchers: [],
     listWatchers: [],
-    stage: { ...stageRange, background: backdrop.fill, backdrops: [backdrop], currentBackdropId: backdrop.id, workspaceState: null, program: [] },
+    stage: { ...stageRange, background: backdrop.fill, backdrops: [backdrop], currentBackdropId: backdrop.id, workspaceState: null, program: [], sounds: [], volume: 100 },
     sprites: initialSprites,
   };
 }
@@ -603,6 +636,9 @@ export default function NeurixEditor({
   const runProgramRef = useRef<((spriteId: string, program: ScriptProgram, runId: number) => Promise<void>) | null>(null);
   const runBroadcastRef = useRef<((message: string, runId: number, waitForCompletion: boolean) => Promise<void>) | null>(null);
   const runBackdropRef = useRef<((backdropId: string, runId: number) => Promise<void>) | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const playingSoundsRef = useRef<PlayingSound[]>([]);
+  const soundEffectsRef = useRef<Record<string, SoundEffects>>({});
 
   const activeSprite = useMemo(
     () => sprites.find((s) => s.id === activeId) ?? sprites[0],
@@ -627,6 +663,15 @@ export default function NeurixEditor({
       ? (activeSprite.costumes ?? [defaultCostume(activeSprite.tone)]).map((costume) => ({ id: costume.id, name: costume.name }))
       : [],
     [activeSprite, activeTarget],
+  );
+  const activeSounds = useMemo(
+    () => activeTarget === "stage" ? stageState.sounds ?? [] : activeSprite?.sounds ?? [],
+    [activeSprite, activeTarget, stageState.sounds],
+  );
+  const activeVolume = activeTarget === "stage" ? stageState.volume ?? 100 : activeSprite?.volume ?? 100;
+  const soundOptions = useMemo(
+    () => activeSounds.map((sound) => ({ id: sound.id, name: sound.name })),
+    [activeSounds],
   );
   const cloudVariableNames = useMemo(() => Object.keys(cloudVariables), [cloudVariables]);
   const variableNames = useMemo(() => {
@@ -660,6 +705,8 @@ export default function NeurixEditor({
       program: stageState.program ?? [],
       broadcastPrograms: stageState.broadcastPrograms ?? {},
       backdropPrograms: stageState.backdropPrograms ?? {},
+      sounds: stageState.sounds ?? [],
+      volume: stageState.volume ?? 100,
     },
     sprites: sprites.filter((sprite) => !sprite.isClone).map((sprite) => ({
       id: sprite.id,
@@ -680,8 +727,10 @@ export default function NeurixEditor({
       lists: sprite.lists ?? {},
       costumes: sprite.costumes ?? [defaultCostume(sprite.tone)],
       currentCostumeId: sprite.currentCostumeId,
+      sounds: sprite.sounds ?? [],
+      volume: sprite.volume ?? 100,
     })),
-  }), [cloudVariables, currentBackdrop, listWatchers, projectLists, projectVariables, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.workspaceState, variableWatchers]);
+  }), [cloudVariables, currentBackdrop, listWatchers, projectLists, projectVariables, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.sounds, stageState.volume, stageState.workspaceState, variableWatchers]);
 
   useEffect(() => {
     cloudVariablesRef.current = cloudVariables;
@@ -1220,6 +1269,8 @@ export default function NeurixEditor({
       lists: {},
       costumes: [defaultCostume(tone)],
       currentCostumeId: "costume-1",
+      sounds: [],
+      volume: 100,
     };
     setSprites((curr) => [...curr, next]);
     setActiveId(id);
@@ -1367,6 +1418,52 @@ export default function NeurixEditor({
     }));
   };
 
+  const addSoundToActive = (sound: ProjectSound) => {
+    if (activeTarget === "stage") {
+      setStageState((curr) => ({ ...curr, sounds: [...(curr.sounds ?? []), sound] }));
+      return;
+    }
+    setSprites((curr) => curr.map((sprite) => sprite.id === activeId ? { ...sprite, sounds: [...(sprite.sounds ?? []), sound] } : sprite));
+  };
+
+  const updateActiveSound = (soundId: string, updater: (sound: ProjectSound) => ProjectSound) => {
+    if (activeTarget === "stage") {
+      setStageState((curr) => ({ ...curr, sounds: (curr.sounds ?? []).map((sound) => sound.id === soundId ? updater(sound) : sound) }));
+      return;
+    }
+    setSprites((curr) => curr.map((sprite) => sprite.id === activeId ? { ...sprite, sounds: (sprite.sounds ?? []).map((sound) => sound.id === soundId ? updater(sound) : sound) } : sprite));
+  };
+
+  const deleteActiveSound = (soundId: string) => {
+    if (activeTarget === "stage") {
+      setStageState((curr) => ({ ...curr, sounds: (curr.sounds ?? []).filter((sound) => sound.id !== soundId) }));
+      return;
+    }
+    setSprites((curr) => curr.map((sprite) => sprite.id === activeId ? { ...sprite, sounds: (sprite.sounds ?? []).filter((sound) => sound.id !== soundId) } : sprite));
+  };
+
+  const duplicateActiveSound = (soundId: string) => {
+    const duplicate = (sounds: ProjectSound[]) => {
+      const source = sounds.find((sound) => sound.id === soundId);
+      if (!source) return sounds;
+      return [...sounds, { ...source, id: `sound-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: `${source.name || "Sound"} copy` }];
+    };
+    if (activeTarget === "stage") {
+      setStageState((curr) => ({ ...curr, sounds: duplicate(curr.sounds ?? []) }));
+      return;
+    }
+    setSprites((curr) => curr.map((sprite) => sprite.id === activeId ? { ...sprite, sounds: duplicate(sprite.sounds ?? []) } : sprite));
+  };
+
+  const setActiveVolume = (volume: number) => {
+    const nextVolume = clamp(volume, 0, 100);
+    if (activeTarget === "stage") {
+      setStageState((curr) => ({ ...curr, volume: nextVolume }));
+      return;
+    }
+    setSprites((curr) => curr.map((sprite) => sprite.id === activeId ? { ...sprite, volume: nextVolume } : sprite));
+  };
+
   const duplicateSprite = () => {
     if (!activeSprite) return;
     const id = `sprite-${Date.now()}`;
@@ -1390,6 +1487,88 @@ export default function NeurixEditor({
     setActiveId(filtered[0].id);
     setActiveTarget("sprite");
   };
+
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) throw new Error("Web Audio is not supported in this browser.");
+      audioContextRef.current = new AudioContextClass();
+    }
+    return audioContextRef.current;
+  }, []);
+
+  const findSoundForTarget = useCallback((targetId: string, soundId: string) => {
+    const sounds = targetId === "stage"
+      ? stageStateRef.current.sounds ?? []
+      : spritesRef.current.find((sprite) => sprite.id === targetId)?.sounds ?? [];
+    return sounds.find((sound) => sound.id === soundId || sound.name === soundId) ?? sounds[0] ?? null;
+  }, []);
+
+  const getTargetVolume = useCallback((targetId: string) => {
+    if (targetId === "stage") return stageStateRef.current.volume ?? 100;
+    return spritesRef.current.find((sprite) => sprite.id === targetId)?.volume ?? 100;
+  }, []);
+
+  const setTargetVolume = useCallback((targetId: string, volume: number) => {
+    const nextVolume = clamp(volume, 0, 100);
+    if (targetId === "stage") {
+      stageStateRef.current = { ...stageStateRef.current, volume: nextVolume };
+      setStageState(stageStateRef.current);
+      return;
+    }
+    spritesRef.current = spritesRef.current.map((sprite) => sprite.id === targetId ? { ...sprite, volume: nextVolume } : sprite);
+    setSprites(spritesRef.current);
+  }, []);
+
+  const stopRuntimeSounds = useCallback(() => {
+    for (const item of playingSoundsRef.current) {
+      try {
+        item.source.stop();
+      } catch {
+      }
+    }
+    playingSoundsRef.current = [];
+  }, []);
+
+  const playRuntimeSound = useCallback(async (targetId: string, soundId: string, waitForCompletion: boolean) => {
+    const sound = findSoundForTarget(targetId, soundId);
+    if (!sound) return;
+    const context = getAudioContext();
+    if (context.state === "suspended") await context.resume();
+    const buffer = await context.decodeAudioData(await (await fetch(sound.dataUrl)).arrayBuffer());
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    const panner = context.createStereoPanner();
+    const effects = soundEffectsRef.current[targetId] ?? { pitch: 0, pan: 0 };
+    source.buffer = buffer;
+    source.playbackRate.value = Math.max(0.1, Math.min(4, 2 ** (effects.pitch / 120)));
+    gain.gain.value = clamp(getTargetVolume(targetId) / 100, 0, 1);
+    panner.pan.value = clamp(effects.pan / 100, -1, 1);
+    source.connect(panner).connect(gain).connect(context.destination);
+
+    const playing: PlayingSound = { source, gain, targetId };
+    playingSoundsRef.current = [...playingSoundsRef.current, playing];
+    const completion = new Promise<void>((resolve) => {
+      source.onended = () => {
+        playingSoundsRef.current = playingSoundsRef.current.filter((item) => item !== playing);
+        resolve();
+      };
+    });
+    source.start();
+    if (waitForCompletion) await completion;
+  }, [findSoundForTarget, getAudioContext, getTargetVolume]);
+
+  const changeRuntimeSoundEffect = useCallback((targetId: string, effect: "pitch" | "pan", amount: number) => {
+    const current = soundEffectsRef.current[targetId] ?? { pitch: 0, pan: 0 };
+    const next = { ...current, [effect]: clamp(current[effect] + amount, effect === "pan" ? -100 : -240, effect === "pan" ? 100 : 240) };
+    soundEffectsRef.current = { ...soundEffectsRef.current, [targetId]: next };
+  }, []);
+
+  const setRuntimeSoundEffect = useCallback((targetId: string, effect: "pitch" | "pan", value: number) => {
+    const current = soundEffectsRef.current[targetId] ?? { pitch: 0, pan: 0 };
+    const next = { ...current, [effect]: clamp(value, effect === "pan" ? -100 : -240, effect === "pan" ? 100 : 240) };
+    soundEffectsRef.current = { ...soundEffectsRef.current, [targetId]: next };
+  }, []);
 
   const runProgram = useCallback(
     async (spriteId: string, program: ScriptNode[], runId: number) => {
@@ -1641,6 +1820,16 @@ export default function NeurixEditor({
           setSprites((curr) => curr.map((sprite) => sprite.id === spriteId ? getNextSprite(sprite) : sprite));
           spritesRef.current = spritesRef.current.map((sprite) => sprite.id === spriteId ? getNextSprite(sprite) : sprite);
         },
+        playSound: (soundId, waitForCompletion) => playRuntimeSound(spriteId, soundId, waitForCompletion),
+        stopAllSounds: stopRuntimeSounds,
+        changeSoundEffect: (effect, amount) => changeRuntimeSoundEffect(spriteId, effect, amount),
+        setSoundEffect: (effect, value) => setRuntimeSoundEffect(spriteId, effect, value),
+        clearSoundEffects: () => {
+          soundEffectsRef.current = { ...soundEffectsRef.current, [spriteId]: { pitch: 0, pan: 0 } };
+        },
+        changeVolume: (amount) => setTargetVolume(spriteId, getTargetVolume(spriteId) + amount),
+        setVolume: (volume) => setTargetVolume(spriteId, volume),
+        getVolume: () => getTargetVolume(spriteId),
         show: () => {
           updateSprite(spriteId, { visible: true });
         },
@@ -1649,7 +1838,7 @@ export default function NeurixEditor({
         },
       });
     },
-    [getListValue, getVariableValue, setListValue, setListWatcherVisible, setVariableValue, updateSprite],
+    [changeRuntimeSoundEffect, getListValue, getTargetVolume, getVariableValue, playRuntimeSound, setListValue, setListWatcherVisible, setRuntimeSoundEffect, setTargetVolume, setVariableValue, stopRuntimeSounds, updateSprite],
   );
 
   const runProgramStacks = useCallback(
@@ -1753,6 +1942,7 @@ export default function NeurixEditor({
     setWorkspaceTab("scripts");
     setIsRunning(false);
     setWatcherMenu(null);
+    stopRuntimeSounds();
   };
 
   const onImportSb3Click = () => {
@@ -1773,6 +1963,7 @@ export default function NeurixEditor({
     runIdRef.current += 1;
     deletedCloneIdsRef.current.clear();
     setIsRunning(false);
+    stopRuntimeSounds();
     setSprites((curr) => curr.filter((sprite) => !sprite.isClone).map((sprite) => ({ ...sprite, sayText: undefined })));
   };
 
@@ -1851,6 +2042,15 @@ export default function NeurixEditor({
                 >
                   Art
                 </button>
+                <button
+                  className={`workspace-tab ${workspaceTab === "sounds" ? "workspace-tab-active workspace-tab-sounds" : ""}`}
+                  onClick={() => setWorkspaceTab("sounds")}
+                  role="tab"
+                  type="button"
+                  aria-selected={workspaceTab === "sounds"}
+                >
+                  Sounds
+                </button>
               </div>
               <div className="workspace-actions">
                 <button
@@ -1880,6 +2080,7 @@ export default function NeurixEditor({
                   targetType={activeTarget}
                   backdrops={backdropOptions}
                   costumes={costumeOptions}
+                  sounds={soundOptions}
                   variableNames={variableNames}
                   cloudVariableNames={cloudVariableNames}
                   listNames={listNames}
@@ -2040,6 +2241,18 @@ export default function NeurixEditor({
                     }}
                   />
                 </div>
+              )}
+              {workspaceTab === "sounds" && (activeTarget === "stage" || activeSprite) && (
+                <ScratchSoundEditor
+                  key={activeTarget === "stage" ? "stage-sounds" : `${activeSprite.id}-sounds`}
+                  sounds={activeSounds}
+                  volume={activeVolume}
+                  onAddSound={addSoundToActive}
+                  onUpdateSound={updateActiveSound}
+                  onDeleteSound={deleteActiveSound}
+                  onDuplicateSound={duplicateActiveSound}
+                  onVolumeChange={setActiveVolume}
+                />
               )}
             </div>
           </div>

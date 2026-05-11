@@ -1735,6 +1735,10 @@ export default function NeurixEditor({
 
   const importSb3 = async (file: File) => {
     const imported = await importProjectFromSb3(file);
+    if (imported.warnings && imported.warnings.length > 0) {
+      console.warn("SB3 import warnings:", imported.warnings);
+      alert(imported.warnings.join("\n"));
+    }
     setProjectName(imported.name || "Imported Project");
     setCloudVariables(normalizeCloudVariables(imported.document.cloudVariables));
     setProjectVariables(normalizeRuntimeValues(imported.document.variables));

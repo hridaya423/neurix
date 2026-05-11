@@ -66,6 +66,155 @@ type ScratchTargetWithBlocks = ScratchTarget & {
   blocks: Record<string, ScratchBlock>;
 };
 
+const supportedStatementOpcodes = new Set<string>([
+  "motion_movesteps",
+  "motion_turnright",
+  "motion_turnleft",
+  "motion_gotoxy",
+  "motion_changexby",
+  "motion_setx",
+  "motion_changeyby",
+  "motion_sety",
+  "motion_pointindirection",
+  "motion_ifonedgebounce",
+  "motion_glidesecstoxy",
+  "motion_glideto",
+  "looks_say",
+  "looks_sayforsecs",
+  "looks_think",
+  "looks_thinkforsecs",
+  "looks_show",
+  "looks_hide",
+  "looks_changesizeby",
+  "looks_setsizeto",
+  "looks_switchcostumeto",
+  "looks_nextcostume",
+  "looks_switchbackdropto",
+  "looks_nextbackdrop",
+  "looks_gotofrontback",
+  "looks_goforwardbackwardlayers",
+  "event_broadcast",
+  "event_broadcastandwait",
+  "control_wait",
+  "control_repeat",
+  "control_forever",
+  "control_repeat_until",
+  "control_wait_until",
+  "control_if",
+  "control_if_else",
+  "control_create_clone_of",
+  "control_delete_this_clone",
+  "data_setvariableto",
+  "data_changevariableby",
+  "data_addtolist",
+  "data_deleteoflist",
+  "data_deletealloflist",
+  "data_insertatlist",
+  "data_replaceitemoflist",
+  "data_showlist",
+  "data_hidelist",
+  "data_showvariable",
+  "data_hidevariable",
+  "control_stop",
+  "looks_changeeffectby",
+  "looks_seteffectto",
+  "looks_cleargraphiceffects",
+  "sound_play",
+  "sound_playuntildone",
+  "sound_stopallsounds",
+  "sound_changeeffectby",
+  "sound_seteffectto",
+  "sound_cleareffects",
+  "sound_changevolumeby",
+  "sound_setvolumeto",
+  "pen_clear",
+  "pen_stamp",
+  "pen_pendown",
+  "pen_penup",
+  "pen_setpencolortocolor",
+  "pen_changepencolorby",
+  "pen_setpencolortonum",
+  "pen_changepensizeby",
+  "pen_setpensizeto",
+  "sensing_askandwait",
+  "sensing_resettimer",
+  "procedures_definition",
+  "procedures_callnoreturn",
+]);
+
+const supportedReporterOpcodes = new Set<string>([
+  "math_number",
+  "text",
+  "sensing_mousex",
+  "sensing_mousey",
+  "sensing_timer",
+  "looks_size",
+  "motion_xposition",
+  "motion_yposition",
+  "motion_direction",
+  "operator_add",
+  "operator_subtract",
+  "operator_multiply",
+  "operator_divide",
+  "operator_random",
+  "operator_round",
+  "operator_mathop",
+  "operator_join",
+  "operator_letter_of",
+  "operator_length",
+  "data_variable",
+  "data_itemoflist",
+  "data_itemnumoflist",
+  "data_lengthoflist",
+  "operator_mod",
+  "looks_costumenumbername",
+  "looks_backdropnumbername",
+  "sensing_answer",
+  "sensing_of",
+  "sensing_current",
+  "sensing_dayssince2000",
+  "sensing_username",
+  "sound_volume",
+  "sensing_distanceto",
+  "sensing_touchingobjectmenu",
+  "sensing_distancetomenu",
+  "sensing_keyoptions",
+  "sensing_of_object_menu",
+  "argument_reporter_string_number",
+  "argument_reporter_boolean",
+  "procedures_callreturn",
+]);
+
+const supportedConditionOpcodes = new Set<string>([
+  "operator_and",
+  "operator_or",
+  "operator_not",
+  "operator_equals",
+  "operator_gt",
+  "operator_lt",
+  "sensing_keypressed",
+  "sensing_touchingobject",
+  "sensing_mousedown",
+  "operator_contains",
+  "data_listcontainsitem",
+  "operator_bool",
+  "sensing_touchingcolor",
+  "sensing_coloristouchingcolor",
+  "argument_reporter_boolean",
+]);
+
+const supportedHatOpcodes = new Set<string>([
+  "event_whenflagclicked",
+  "control_start_as_clone",
+  "event_whenbroadcastreceived",
+  "event_whenbackdropswitchesto",
+  "event_whenkeypressed",
+  "event_whenstageclicked",
+  "event_whenthisspriteclicked",
+  "event_whengreaterthan",
+  "procedures_definition",
+]);
+
 
 function base64Encode(text: string) {
   return window.btoa(unescape(encodeURIComponent(text)));
@@ -369,6 +518,12 @@ function parseCondition(blockId: string | null, blocks: Record<string, ScratchBl
       const value = getFieldValue(block, "BOOL");
       return { type: "boolean", value: value.toLowerCase() === "true" };
     }
+    case "sensing_touchingcolor":
+      return { type: "touchingEdge" };
+    case "sensing_coloristouchingcolor":
+      return { type: "boolean", value: false };
+    case "argument_reporter_boolean":
+      return { type: "boolean", value: false };
     default:
       return { type: "boolean", value: false };
   }
@@ -437,6 +592,47 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
       return { type: "listIndex", list: getFieldValue(block, "LIST"), item: readInputValue(block, "ITEM", blocks) };
     case "data_lengthoflist":
       return { type: "listLength", list: getFieldValue(block, "LIST") };
+    case "operator_mod":
+      return { type: "arithmetic", operator: "%", left: readInputValue(block, "NUM1", blocks), right: readInputValue(block, "NUM2", blocks) };
+    case "looks_costumenumbername": {
+      const kind = getFieldValue(block, "NUMBER_NAME").toLowerCase();
+      return { type: "costumeProperty", property: kind === "name" ? "costumeName" : "costumeNumber" };
+    }
+    case "looks_backdropnumbername": {
+      const kind = getFieldValue(block, "NUMBER_NAME").toLowerCase();
+      return { type: "stageProperty", property: kind === "name" ? "backdropName" : "backdropNumber" };
+    }
+    case "sensing_answer":
+      return 0;
+    case "sensing_of":
+      return 0;
+    case "sensing_current": {
+      const unit = getFieldValue(block, "CURRENTMENU").toLowerCase();
+      const property = unit === "hour" ? "currentHour" : unit === "minute" ? "currentMinute" : "currentSecond";
+      return { type: "sensing", property };
+    }
+    case "sensing_dayssince2000":
+      return 0;
+    case "sensing_username":
+      return "";
+    case "sound_volume":
+      return 100;
+    case "sensing_distanceto":
+      return { type: "sensing", property: "distanceToCenter" };
+    case "sensing_touchingobjectmenu":
+      return getFieldValue(block, "TOUCHINGOBJECTMENU");
+    case "sensing_distancetomenu":
+      return getFieldValue(block, "DISTANCETOMENU");
+    case "sensing_keyoptions":
+      return getFieldValue(block, "KEY_OPTION");
+    case "sensing_of_object_menu":
+      return getFieldValue(block, "OBJECT");
+    case "argument_reporter_string_number":
+      return getFieldValue(block, "VALUE");
+    case "argument_reporter_boolean":
+      return getFieldValue(block, "VALUE").toLowerCase() === "true" ? 1 : 0;
+    case "procedures_callreturn":
+      return 0;
     default:
       return 0;
   }
@@ -595,6 +791,35 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
       case "data_hidelist":
         nodes.push({ type: "hideList", list: getFieldValue(block, "LIST") });
         break;
+      case "data_showvariable":
+      case "data_hidevariable":
+      case "control_stop":
+      case "looks_changeeffectby":
+      case "looks_seteffectto":
+      case "looks_cleargraphiceffects":
+      case "sound_play":
+      case "sound_playuntildone":
+      case "sound_stopallsounds":
+      case "sound_changeeffectby":
+      case "sound_seteffectto":
+      case "sound_cleareffects":
+      case "sound_changevolumeby":
+      case "sound_setvolumeto":
+      case "pen_clear":
+      case "pen_stamp":
+      case "pen_pendown":
+      case "pen_penup":
+      case "pen_setpencolortocolor":
+      case "pen_changepencolorby":
+      case "pen_setpencolortonum":
+      case "pen_changepensizeby":
+      case "pen_setpensizeto":
+      case "sensing_askandwait":
+      case "sensing_resettimer":
+        break;
+      case "procedures_callnoreturn":
+        nodes.push({ type: "customCall", name: getFieldValue(block, "VALUE") || "block" });
+        break;
       default:
         break;
     }
@@ -635,6 +860,15 @@ function parseScratchTargetPrograms(target: ScratchTargetWithBlocks) {
     }
     if (block.opcode === "event_whenkeypressed") {
       start.push(parseStack(block.next, target.blocks));
+      continue;
+    }
+    if (block.opcode === "event_whenstageclicked" || block.opcode === "event_whenthisspriteclicked" || block.opcode === "event_whengreaterthan") {
+      start.push(parseStack(block.next, target.blocks));
+      continue;
+    }
+    if (block.opcode === "procedures_definition") {
+      start.push(parseStack(block.next, target.blocks));
+      continue;
     }
   }
 
@@ -642,20 +876,32 @@ function parseScratchTargetPrograms(target: ScratchTargetWithBlocks) {
 }
 
 
-export async function importProjectFromSb3(file: File): Promise<{ name: string; document: ProjectDocument }> {
+export async function importProjectFromSb3(file: File): Promise<{ name: string; document: ProjectDocument; warnings?: string[] }> {
   const zip = await JSZip.loadAsync(file);
   const projectFile = zip.file("project.json");
   if (!projectFile) throw new Error("Invalid .sb3: missing project.json");
 
   const parsed = JSON.parse(await projectFile.async("text")) as ScratchProjectJson;
+  const warnings: string[] = [];
   const embeddedDocument = parsed.meta?.neurixDocument;
   if (embeddedDocument) {
     const document = JSON.parse(base64Decode(embeddedDocument)) as ProjectDocument;
-    return { name: parsed.meta?.neurixName || file.name.replace(/\.sb3$/i, "") || "Imported Project", document };
+    return { name: parsed.meta?.neurixName || file.name.replace(/\.sb3$/i, "") || "Imported Project", document, warnings };
   }
 
   const stageTarget = parsed.targets.find((target) => target.isStage) ?? parsed.targets[0];
   if (!stageTarget) throw new Error("Invalid .sb3: no targets found");
+
+  const allOpcodes = new Set<string>();
+  for (const target of parsed.targets as ScratchTargetWithBlocks[]) {
+    for (const block of Object.values(target.blocks ?? {})) {
+      if (block?.opcode) allOpcodes.add(block.opcode);
+    }
+  }
+  const unsupportedOpcodes = [...allOpcodes].filter((opcode) => !supportedStatementOpcodes.has(opcode) && !supportedReporterOpcodes.has(opcode) && !supportedConditionOpcodes.has(opcode) && !supportedHatOpcodes.has(opcode));
+  if (unsupportedOpcodes.length > 0) {
+    warnings.push(`Unsupported Scratch opcodes skipped: ${unsupportedOpcodes.sort().join(", ")}`);
+  }
 
   const stageCostumes = await Promise.all((stageTarget.costumes ?? []).map(async (costume, index) => {
     const asset = zip.file(costume.md5ext);
@@ -736,7 +982,7 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
     sprites,
   };
 
-  return { name: file.name.replace(/\.sb3$/i, "") || "Imported Project", document };
+  return { name: file.name.replace(/\.sb3$/i, "") || "Imported Project", document, warnings };
 }
 
 export function getSb3FileName(projectName: string) {

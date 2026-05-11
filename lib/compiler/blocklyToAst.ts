@@ -1,5 +1,5 @@
 import * as Blockly from "blockly/core";
-import type { KeyName, ScriptCondition, ScriptEventPrograms, ScriptNode, ScriptProgram, ScriptValue } from "@/lib/compiler/types";
+import type { GraphicEffect, KeyName, ScriptCondition, ScriptEventPrograms, ScriptNode, ScriptProgram, ScriptValue } from "@/lib/compiler/types";
 
 type CustomDefinitionArg = { name: string; kind: "value" | "boolean" };
 type CustomDefinition = { start: Blockly.Block | null; args: CustomDefinitionArg[] };
@@ -393,6 +393,29 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
       case "looks_change_tone":
         program.push({ type: "changeTone", amount: getValueInput(block, "AMOUNT", 1, bindings) });
         break;
+      case "looks_change_effect":
+        program.push({ type: "changeGraphicEffect", effect: String(block.getFieldValue("EFFECT")) as GraphicEffect, amount: getValueInput(block, "AMOUNT", 25, bindings) });
+        break;
+      case "looks_set_effect":
+        program.push({ type: "setGraphicEffect", effect: String(block.getFieldValue("EFFECT")) as GraphicEffect, value: getValueInput(block, "VALUE", 0, bindings) });
+        break;
+      case "looks_clear_effects":
+        program.push({ type: "clearGraphicEffects" });
+        break;
+      case "data_showvariable":
+        program.push({ type: "showVariable", name: getVariableName(block, "VAR") });
+        break;
+      case "data_hidevariable":
+        program.push({ type: "hideVariable", name: getVariableName(block, "VAR") });
+        break;
+      case "sensing_resettimer":
+        program.push({ type: "resetTimer" });
+        break;
+      case "control_stop": {
+        const mode = String(block.getFieldValue("STOP") ?? "all");
+        program.push({ type: "stop", mode: mode === "thisScript" ? "thisScript" : "all" });
+        break;
+      }
       case "looks_show":
         program.push({ type: "show" });
         break;
@@ -411,6 +434,9 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
         break;
       case "looks_switch_backdrop":
         program.push({ type: "switchBackdrop", backdropId: String(block.getFieldValue("BACKDROP") ?? "backdrop-1") });
+        break;
+      case "looks_switch_backdrop_and_wait":
+        program.push({ type: "switchBackdropAndWait", backdropId: String(block.getFieldValue("BACKDROP") ?? "backdrop-1") });
         break;
       case "looks_next_backdrop":
         program.push({ type: "nextBackdrop" });

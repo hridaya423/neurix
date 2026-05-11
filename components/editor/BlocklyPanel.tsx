@@ -481,6 +481,14 @@ const CUSTOM_BLOCKS = [
     style: "looks_blocks",
   },
   {
+    type: "looks_switch_backdrop_and_wait",
+    message0: "switch backdrop to %1 and wait",
+    args0: [{ type: "field_dropdown", name: "BACKDROP", options: [["Backdrop 1", "backdrop-1"]] }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  {
     type: "looks_next_backdrop",
     message0: "next backdrop",
     previousStatement: null,
@@ -519,6 +527,35 @@ const CUSTOM_BLOCKS = [
     type: "looks_change_tone",
     message0: "change color by %1",
     args0: [{ type: "input_value", name: "AMOUNT", check: "Number" }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  {
+    type: "looks_change_effect",
+    message0: "change %1 effect by %2",
+    args0: [
+      { type: "field_dropdown", name: "EFFECT", options: [["color", "color"], ["fisheye", "fisheye"], ["whirl", "whirl"], ["pixelate", "pixelate"], ["mosaic", "mosaic"], ["brightness", "brightness"], ["ghost", "ghost"]] },
+      { type: "input_value", name: "AMOUNT", check: "Number" },
+    ],
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  {
+    type: "looks_set_effect",
+    message0: "set %1 effect to %2",
+    args0: [
+      { type: "field_dropdown", name: "EFFECT", options: [["color", "color"], ["fisheye", "fisheye"], ["whirl", "whirl"], ["pixelate", "pixelate"], ["mosaic", "mosaic"], ["brightness", "brightness"], ["ghost", "ghost"]] },
+      { type: "input_value", name: "VALUE", check: "Number" },
+    ],
+    previousStatement: null,
+    nextStatement: null,
+    style: "looks_blocks",
+  },
+  {
+    type: "looks_clear_effects",
+    message0: "clear graphic effects",
     previousStatement: null,
     nextStatement: null,
     style: "looks_blocks",
@@ -598,6 +635,14 @@ const CUSTOM_BLOCKS = [
     style: "control_blocks",
   },
   {
+    type: "control_stop",
+    message0: "stop %1",
+    args0: [{ type: "field_dropdown", name: "STOP", options: [["all", "all"], ["this script", "thisScript"]] }],
+    previousStatement: null,
+    nextStatement: null,
+    style: "control_blocks",
+  },
+  {
     type: "control_forever",
     message0: "forever",
     message1: "do %1",
@@ -654,13 +699,15 @@ const CUSTOM_BLOCKS = [
   { type: "sensing_timer", message0: "timer", output: "Number", style: "sensing_blocks" },
   { type: "sensing_distance_to_center", message0: "distance to center", output: "Number", style: "sensing_blocks" },
   { type: "sensing_last_key", message0: "last key", output: "String", style: "sensing_blocks" },
-  {
-    type: "sensing_current_time",
+  { type: "sensing_current_time",
     message0: "current %1",
     args0: [{ type: "field_dropdown", name: "UNIT", options: [["second", "SECOND"], ["minute", "MINUTE"], ["hour", "HOUR"]] }],
     output: "Number",
     style: "sensing_blocks",
   },
+  { type: "sensing_resettimer", message0: "reset timer", previousStatement: null, nextStatement: null, style: "sensing_blocks" },
+  { type: "data_showvariable", message0: "show variable %1", args0: [{ type: "field_dropdown", name: "VAR", options: [["variable", "variable"]] }], previousStatement: null, nextStatement: null, style: "data_blocks" },
+  { type: "data_hidevariable", message0: "hide variable %1", args0: [{ type: "field_dropdown", name: "VAR", options: [["variable", "variable"]] }], previousStatement: null, nextStatement: null, style: "data_blocks" },
   {
     type: "operator_compare_numbers",
     message0: "%1 %2 %3",
@@ -964,6 +1011,9 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "looks_set_size_value", inputs: { SIZE: { shadow: { type: "math_number", fields: { NUM: 100 } } } } },
         { kind: "block", type: "looks_set_tone" },
         { kind: "block", type: "looks_change_tone", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: 1 } } } } },
+        { kind: "block", type: "looks_change_effect", inputs: { AMOUNT: { shadow: { type: "math_number", fields: { NUM: 25 } } } } },
+        { kind: "block", type: "looks_set_effect", inputs: { VALUE: { shadow: { type: "math_number", fields: { NUM: 0 } } } } },
+        { kind: "block", type: "looks_clear_effects" },
         { kind: "block", type: "looks_show" },
         { kind: "block", type: "looks_hide" },
         { kind: "block", type: "looks_go_to_layer" },
@@ -973,6 +1023,7 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "looks_costume_name" },
         { kind: "block", type: "looks_costume_number" },
         { kind: "block", type: "looks_switch_backdrop" },
+        { kind: "block", type: "looks_switch_backdrop_and_wait" },
         { kind: "block", type: "looks_next_backdrop" },
         { kind: "block", type: "looks_backdrop_name" },
         { kind: "block", type: "looks_backdrop_number" },
@@ -990,6 +1041,7 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "control_wait_until" },
         { kind: "block", type: "control_create_clone" },
         { kind: "block", type: "control_delete_clone" },
+        { kind: "block", type: "control_stop" },
         { kind: "block", type: "control_forever" },
         { kind: "block", type: "control_if" },
         { kind: "block", type: "control_if_else" },
@@ -1026,6 +1078,7 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "sensing_distance_to_center" },
         { kind: "block", type: "sensing_last_key" },
         { kind: "block", type: "sensing_current_time" },
+        { kind: "block", type: "sensing_resettimer" },
       ],
     },
     {
@@ -1108,6 +1161,7 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       categorystyle: "looks_category",
       contents: [
         { kind: "block", type: "looks_switch_backdrop" },
+        { kind: "block", type: "looks_switch_backdrop_and_wait" },
         { kind: "block", type: "looks_next_backdrop" },
         { kind: "block", type: "looks_backdrop_name" },
         { kind: "block", type: "looks_backdrop_number" },
@@ -1156,6 +1210,7 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "sensing_timer" },
         { kind: "block", type: "sensing_last_key" },
         { kind: "block", type: "sensing_current_time" },
+        { kind: "block", type: "sensing_resettimer" },
       ],
     },
     {
@@ -1865,6 +1920,10 @@ function variablesFlyout(workspace: Blockly.WorkspaceSvg): Blockly.utils.toolbox
     { kind: "button", text: "Make a Variable", callbackkey: "NEURIX_CREATE_VARIABLE" },
     ...(variables.length > 0 ? [{ kind: "button", text: "Delete a Variable", callbackkey: "NEURIX_DELETE_VARIABLE" }] : []),
     ...watcherBlocks,
+    ...(variables.length > 0 ? variables.flatMap((name) => [
+      { kind: "block", type: "data_showvariable", fields: { VAR: name } },
+      { kind: "block", type: "data_hidevariable", fields: { VAR: name } },
+    ]) : []),
     ...items,
   ] as Blockly.utils.toolbox.FlyoutItemInfoArray;
 }
@@ -2320,6 +2379,63 @@ function registerCustomBlocks() {
       this.appendDummyInput()
         .appendField("switch backdrop to")
         .appendField(new Blockly.FieldDropdown(backdropMenuGenerator), "BACKDROP");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("looks_blocks");
+    },
+  };
+
+  Blockly.Blocks["looks_switch_backdrop_and_wait"] = {
+    init: function () {
+      this.appendDummyInput()
+        .appendField("switch backdrop to")
+        .appendField(new Blockly.FieldDropdown(backdropMenuGenerator), "BACKDROP")
+        .appendField("and wait");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("looks_blocks");
+    },
+  };
+
+  const graphicEffectOptions: [string, string][] = [
+    ["color", "color"],
+    ["fisheye", "fisheye"],
+    ["whirl", "whirl"],
+    ["pixelate", "pixelate"],
+    ["mosaic", "mosaic"],
+    ["brightness", "brightness"],
+    ["ghost", "ghost"],
+  ];
+
+  Blockly.Blocks["looks_change_effect"] = {
+    init: function () {
+      this.appendValueInput("AMOUNT")
+        .setCheck("Number")
+        .appendField("change")
+        .appendField(new Blockly.FieldDropdown(graphicEffectOptions), "EFFECT")
+        .appendField("effect by");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("looks_blocks");
+    },
+  };
+
+  Blockly.Blocks["looks_set_effect"] = {
+    init: function () {
+      this.appendValueInput("VALUE")
+        .setCheck("Number")
+        .appendField("set")
+        .appendField(new Blockly.FieldDropdown(graphicEffectOptions), "EFFECT")
+        .appendField("effect to");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("looks_blocks");
+    },
+  };
+
+  Blockly.Blocks["looks_clear_effects"] = {
+    init: function () {
+      this.appendDummyInput().appendField("clear graphic effects");
       this.setPreviousStatement(true);
       this.setNextStatement(true);
       this.setStyle("looks_blocks");

@@ -7,7 +7,7 @@ import { BlocklyPanel } from "./BlocklyPanel";
 import { ScratchPaintBackdropEditor } from "./ScratchPaintBackdropEditor";
 import { ScratchSoundEditor } from "./ScratchSoundEditor";
 import type { ProjectSound } from "@/lib/audio/soundTypes";
-import type { ScriptEventPrograms, ScriptNode, ScriptProgram } from "@/lib/compiler/types";
+import type { GraphicEffect, ScriptEventPrograms, ScriptNode, ScriptProgram } from "@/lib/compiler/types";
 import { runScript } from "@/lib/runtime/interpreter";
 import { exportProjectToSb3, getSb3FileName, importProjectFromSb3 } from "@/lib/scratch/sb3";
 import {
@@ -353,6 +353,7 @@ const backdropCanvas = { width: 480, height: 360, pixelColumns: 48, pixelRows: 3
 type WorkspaceTab = "scripts" | "art" | "sounds";
 type ActiveTarget = "sprite" | "stage";
 type SoundEffects = { pitch: number; pan: number };
+type GraphicEffects = Record<GraphicEffect, number>;
 type PlayingSound = { source: AudioBufferSourceNode; gain: GainNode; targetId: string };
 
 function createBackdropSvg(fill: string) {
@@ -546,18 +547,40 @@ function formatInspectorNumber(value: number) {
   return Number.isInteger(safeValue) ? String(safeValue) : safeValue.toFixed(1);
 }
 
-function getStageStyle(sprite: SavedSprite): CSSProperties {
+function getGraphicEffectsFilter(effects: GraphicEffects | undefined): string {
+  if (!effects) return "";
+  const filters: string[] = [];
+  const ghost = effects.ghost ?? 0;
+  const brightness = effects.brightness ?? 0;
+  const color = effects.color ?? 0;
+  const fisheye = effects.fisheye ?? 0;
+  const whirl = effects.whirl ?? 0;
+  const pixelate = effects.pixelate ?? 0;
+  const mosaic = effects.mosaic ?? 0;
+  if (ghost !== 0) filters.push(`opacity(${1 - ghost / 100})`);
+  if (brightness !== 0) filters.push(`brightness(${1 + brightness / 100})`);
+  if (color !== 0) filters.push(`hue-rotate(${color * 3.6}deg)`);
+  if (fisheye !== 0) filters.push(`saturate(${1 + fisheye / 50})`);
+  if (whirl !== 0) filters.push(`blur(${Math.min(Math.abs(whirl) / 20, 2)}px)`);
+  if (pixelate !== 0) filters.push(`contrast(${1 + pixelate / 200})`);
+  if (mosaic !== 0) filters.push(`contrast(${1 + mosaic / 200})`);
+  return filters.join(" ");
+}
+
+function getStageStyle(sprite: SavedSprite, graphicEffects?: GraphicEffects): CSSProperties {
   const x = clamp(sprite.x, stageRange.minX, stageRange.maxX);
   const y = clamp(sprite.y, stageRange.minY, stageRange.maxY);
   const px = ((x - stageRange.minX) / (stageRange.maxX - stageRange.minX)) * 100;
   const py = ((stageRange.maxY - y) / (stageRange.maxY - stageRange.minY)) * 100;
   const sizeScale = clamp(sprite.size, 1, 1000) / 100;
+  const filter = getGraphicEffectsFilter(graphicEffects);
   return {
     left: `${px}%`,
     top: `${py}%`,
     width: `${25 * sizeScale}%`,
     height: `${33.333 * sizeScale}%`,
     transform: `translate(-50%, -50%) rotate(${sprite.direction}deg)`,
+    ...(filter ? { filter } : {}),
   };
 }
 
@@ -639,6 +662,7 @@ export default function NeurixEditor({
   const audioContextRef = useRef<AudioContext | null>(null);
   const playingSoundsRef = useRef<PlayingSound[]>([]);
   const soundEffectsRef = useRef<Record<string, SoundEffects>>({});
+  const graphicEffectsRef = useRef<Record<string, GraphicEffects>>({});
 
   const activeSprite = useMemo(
     () => sprites.find((s) => s.id === activeId) ?? sprites[0],
@@ -1081,7 +1105,7 @@ export default function NeurixEditor({
         <div
           key={sprite.id}
           className="stage-sprite"
-          style={getStageStyle(sprite)}
+          style={getStageStyle(sprite, graphicEffectsRef.current[sprite.id])}
         >
           <span
             className="stage-sprite-costume"
@@ -1784,6 +1808,16 @@ export default function NeurixEditor({
           setStageState(nextStage);
           void runBackdropRef.current?.(backdrop.id, runId);
         },
+        switchBackdropAndWait: async (backdropId) => {
+          const curr = stageStateRef.current;
+          const backdrops = curr.backdrops ?? [defaultBackdrop(curr.background ?? "#f5f5f7")];
+          const backdrop = backdrops.find((item) => item.id === backdropId);
+          if (!backdrop) return;
+          const nextStage = { ...curr, background: backdrop.fill, backdrops, currentBackdropId: backdrop.id };
+          stageStateRef.current = nextStage;
+          setStageState(nextStage);
+          await runBackdropRef.current?.(backdrop.id, runId);
+        },
         nextBackdrop: () => {
           const curr = stageStateRef.current;
           const backdrops = curr.backdrops ?? [defaultBackdrop(curr.background ?? "#f5f5f7")];
@@ -1826,6 +1860,28 @@ export default function NeurixEditor({
         setSoundEffect: (effect, value) => setRuntimeSoundEffect(spriteId, effect, value),
         clearSoundEffects: () => {
           soundEffectsRef.current = { ...soundEffectsRef.current, [spriteId]: { pitch: 0, pan: 0 } };
+        },
+        changeGraphicEffect: (effect, amount) => {
+          const current = graphicEffectsRef.current[spriteId] ?? { color: 0, fisheye: 0, whirl: 0, pixelate: 0, mosaic: 0, brightness: 0, ghost: 0 };
+          const next = { ...current, [effect]: (current[effect] ?? 0) + amount };
+          graphicEffectsRef.current = { ...graphicEffectsRef.current, [spriteId]: next };
+          setSprites((curr) => curr.map((sprite) => sprite.id === spriteId ? { ...sprite } : sprite));
+        },
+        setGraphicEffect: (effect, value) => {
+          const current = graphicEffectsRef.current[spriteId] ?? { color: 0, fisheye: 0, whirl: 0, pixelate: 0, mosaic: 0, brightness: 0, ghost: 0 };
+          const next = { ...current, [effect]: value };
+          graphicEffectsRef.current = { ...graphicEffectsRef.current, [spriteId]: next };
+          setSprites((curr) => curr.map((sprite) => sprite.id === spriteId ? { ...sprite } : sprite));
+        },
+        clearGraphicEffects: () => {
+          graphicEffectsRef.current = { ...graphicEffectsRef.current, [spriteId]: { color: 0, fisheye: 0, whirl: 0, pixelate: 0, mosaic: 0, brightness: 0, ghost: 0 } };
+          setSprites((curr) => curr.map((sprite) => sprite.id === spriteId ? { ...sprite } : sprite));
+        },
+        resetTimer: () => {
+          timerStartRef.current = Date.now();
+        },
+        setVariableVisible: (name, visible) => {
+          setVariableWatchers((curr) => curr.map((watcher) => watcher.name === name ? { ...watcher, visible } : watcher));
         },
         changeVolume: (amount) => setTargetVolume(spriteId, getTargetVolume(spriteId) + amount),
         setVolume: (volume) => setTargetVolume(spriteId, volume),
@@ -1964,11 +2020,13 @@ export default function NeurixEditor({
     deletedCloneIdsRef.current.clear();
     setIsRunning(false);
     stopRuntimeSounds();
+    graphicEffectsRef.current = {};
     setSprites((curr) => curr.filter((sprite) => !sprite.isClone).map((sprite) => ({ ...sprite, sayText: undefined })));
   };
 
   const resetSprites = () => {
     stopAllSprites();
+    graphicEffectsRef.current = {};
     setSprites((curr) =>
       curr.map((sprite) => ({ ...sprite, x: 0, y: 0, direction: 90, visible: true, sayText: undefined })),
     );

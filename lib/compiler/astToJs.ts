@@ -185,6 +185,21 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `sprite.setTone(${jsString(node.tone)});`)];
       case "changeTone":
         return [line(depth, `sprite.changeTone(Number(${valueToJs(node.amount)}) || 0);`)];
+      case "changeGraphicEffect":
+        return [line(depth, `api.changeGraphicEffect?.(${jsString(node.effect)}, Number(${valueToJs(node.amount)}) || 0);`)];
+      case "setGraphicEffect":
+        return [line(depth, `api.setGraphicEffect?.(${jsString(node.effect)}, Number(${valueToJs(node.value)}) || 0);`)];
+      case "clearGraphicEffects":
+        return [line(depth, `api.clearGraphicEffects?.();`)];
+      case "showVariable":
+        return [line(depth, `api.setVariableVisible?.(${jsString(node.name)}, true);`)];
+      case "hideVariable":
+        return [line(depth, `api.setVariableVisible?.(${jsString(node.name)}, false);`)];
+      case "resetTimer":
+        return [line(depth, `api.resetTimer?.();`)];
+      case "stop":
+        if (node.mode === "all") return [line(depth, "return;")];
+        return [line(depth, "return;")];
       case "show":
         return [line(depth, "sprite.show();")];
       case "hide":
@@ -195,6 +210,8 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `api.changeLayer(${jsString(node.direction)}, Math.max(0, Math.floor(Number(${valueToJs(node.amount)}) || 0)));`)];
       case "switchBackdrop":
         return [line(depth, `api.switchBackdrop(${jsString(node.backdropId)});`)];
+      case "switchBackdropAndWait":
+        return [line(depth, `await api.switchBackdropAndWait(${jsString(node.backdropId)});`)];
       case "nextBackdrop":
         return [line(depth, "api.nextBackdrop();")];
       case "broadcast":

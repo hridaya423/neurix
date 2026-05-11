@@ -1,3 +1,5 @@
+export type GraphicEffect = "color" | "fisheye" | "whirl" | "pixelate" | "mosaic" | "brightness" | "ghost";
+
 export type KeyName = string;
 
 export type ScriptValue =
@@ -65,6 +67,7 @@ export type ScriptNode =
   | { type: "goToLayer"; layer: "front" | "back" }
   | { type: "changeLayer"; direction: "forward" | "backward"; amount: ScriptValue }
   | { type: "switchBackdrop"; backdropId: string }
+  | { type: "switchBackdropAndWait"; backdropId: string }
   | { type: "nextBackdrop" }
   | { type: "broadcast"; message: string }
   | { type: "broadcastAndWait"; message: string }
@@ -79,6 +82,13 @@ export type ScriptNode =
   | { type: "setVolume"; volume: ScriptValue }
   | { type: "setTone"; tone: string }
   | { type: "changeTone"; amount: ScriptValue }
+  | { type: "changeGraphicEffect"; effect: GraphicEffect; amount: ScriptValue }
+  | { type: "setGraphicEffect"; effect: GraphicEffect; value: ScriptValue }
+  | { type: "clearGraphicEffects" }
+  | { type: "showVariable"; name: string }
+  | { type: "hideVariable"; name: string }
+  | { type: "resetTimer" }
+  | { type: "stop"; mode: "all" | "thisScript" }
   | { type: "setVariable"; name: string; value: ScriptValue }
   | { type: "changeVariable"; name: string; amount: ScriptValue }
   | { type: "listAdd"; list: string; item: ScriptValue }

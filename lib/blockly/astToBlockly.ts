@@ -168,6 +168,30 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
     case "changeTone":
       block = workspace.newBlock("looks_change_tone");
       return init(block);
+    case "changeGraphicEffect":
+      block = workspace.newBlock("looks_change_effect");
+      setField(block, "EFFECT", node.effect);
+      return init(block);
+    case "setGraphicEffect":
+      block = workspace.newBlock("looks_set_effect");
+      setField(block, "EFFECT", node.effect);
+      return init(block);
+    case "clearGraphicEffects":
+      return init(workspace.newBlock("looks_clear_effects"));
+    case "showVariable":
+      block = workspace.newBlock("data_showvariable");
+      setField(block, "VAR", node.name);
+      return init(block);
+    case "hideVariable":
+      block = workspace.newBlock("data_hidevariable");
+      setField(block, "VAR", node.name);
+      return init(block);
+    case "resetTimer":
+      return init(workspace.newBlock("sensing_resettimer"));
+    case "stop":
+      block = workspace.newBlock("control_stop");
+      setField(block, "STOP", node.mode);
+      return init(block);
     case "show":
       return init(workspace.newBlock("looks_show"));
     case "hide":
@@ -182,6 +206,10 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
       return init(block);
     case "switchBackdrop":
       block = workspace.newBlock("looks_switch_backdrop");
+      setField(block, "BACKDROP", node.backdropId);
+      return init(block);
+    case "switchBackdropAndWait":
+      block = workspace.newBlock("looks_switch_backdrop_and_wait");
       setField(block, "BACKDROP", node.backdropId);
       return init(block);
     case "nextBackdrop":

@@ -1,4 +1,4 @@
-import type { ScriptCondition, ScriptNode, ScriptValue } from "@/lib/compiler/types";
+import type { GraphicEffect, ScriptCondition, ScriptNode, ScriptValue } from "@/lib/compiler/types";
 
 export type ScriptRuntime = {
   isCancelled: () => boolean;
@@ -41,11 +41,17 @@ export type ScriptRuntime = {
   setSize: (size: number) => void;
   setTone: (tone: string) => void;
   changeTone: (amount: number) => void;
+  changeGraphicEffect: (effect: GraphicEffect, amount: number) => void;
+  setGraphicEffect: (effect: GraphicEffect, value: number) => void;
+  clearGraphicEffects: () => void;
+  resetTimer: () => void;
+  setVariableVisible: (name: string, visible: boolean) => void;
   createClone: () => void;
   deleteClone: () => void;
   goToLayer: (layer: "front" | "back") => void;
   changeLayer: (direction: "forward" | "backward", amount: number) => void;
   switchBackdrop: (backdropId: string) => void;
+  switchBackdropAndWait: (backdropId: string) => Promise<void>;
   nextBackdrop: () => void;
   broadcast: (message: string, waitForCompletion: boolean) => Promise<void>;
   switchCostume: (costumeId: string) => void;
@@ -343,6 +349,26 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
     case "changeTone":
       runtime.changeTone(toNumber(valueOf(node.amount, runtime, variables)));
       break;
+    case "changeGraphicEffect":
+      runtime.changeGraphicEffect(node.effect, toNumber(valueOf(node.amount, runtime, variables)));
+      break;
+    case "setGraphicEffect":
+      runtime.setGraphicEffect(node.effect, toNumber(valueOf(node.value, runtime, variables)));
+      break;
+    case "clearGraphicEffects":
+      runtime.clearGraphicEffects();
+      break;
+    case "showVariable":
+      runtime.setVariableVisible(node.name, true);
+      break;
+    case "hideVariable":
+      runtime.setVariableVisible(node.name, false);
+      break;
+    case "resetTimer":
+      runtime.resetTimer();
+      break;
+    case "stop":
+      return;
     case "show":
       runtime.show();
       break;
@@ -357,6 +383,9 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "switchBackdrop":
       runtime.switchBackdrop(node.backdropId);
+      break;
+    case "switchBackdropAndWait":
+      await runtime.switchBackdropAndWait(node.backdropId);
       break;
     case "nextBackdrop":
       runtime.nextBackdrop();

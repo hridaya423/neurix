@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import type { ProjectDocument } from "@/components/editor/NeurixEditor";
 import { programsToWorkspaceState } from "@/lib/blockly/astToBlockly";
-import type { ScriptCondition, ScriptEventPrograms, ScriptNode, ScriptProgram, ScriptValue } from "@/lib/compiler/types";
+import type { GraphicEffect, ScriptCondition, ScriptEventPrograms, ScriptNode, ScriptProgram, ScriptValue } from "@/lib/compiler/types";
 
 type ScratchVariableTuple = [string, number | string, boolean?];
 type ScratchListTuple = [string, Array<number | string>];
@@ -98,6 +98,7 @@ const supportedStatementOpcodes = new Set<string>([
   "looks_switchcostumeto",
   "looks_nextcostume",
   "looks_switchbackdropto",
+  "looks_switchbackdropandwait",
   "looks_nextbackdrop",
   "looks_gotofrontback",
   "looks_goforwardbackwardlayers",
@@ -792,6 +793,9 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
       case "looks_switchbackdropto":
         nodes.push({ type: "switchBackdrop", backdropId: getFieldValue(block, "BACKDROP") || "backdrop-1" });
         break;
+      case "looks_switchbackdropandwait":
+        nodes.push({ type: "switchBackdropAndWait", backdropId: getFieldValue(block, "BACKDROP") || "backdrop-1" });
+        break;
       case "looks_nextbackdrop":
         nodes.push({ type: "nextBackdrop" });
         break;
@@ -894,11 +898,19 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
         nodes.push({ type: "setVolume", volume: readInputValue(block, "VOLUME", blocks) });
         break;
       case "data_showvariable":
+        nodes.push({ type: "showVariable", name: getFieldValue(block, "VARIABLE") || "variable" });
+        break;
       case "data_hidevariable":
-      case "control_stop":
-      case "looks_changeeffectby":
-      case "looks_seteffectto":
-      case "looks_cleargraphiceffects":
+        nodes.push({ type: "hideVariable", name: getFieldValue(block, "VARIABLE") || "variable" });
+        break;
+      case "control_stop": {
+        const stopMode = getFieldValue(block, "STOP_OPTION") || getFieldValue(block, "STOP") || "all";
+        nodes.push({ type: "stop", mode: stopMode === "this_script" || stopMode === "thisScript" ? "thisScript" : "all" });
+        break;
+      }
+      case "sensing_resettimer":
+        nodes.push({ type: "resetTimer" });
+        break;
       case "pen_clear":
       case "pen_stamp":
       case "pen_pendown":
@@ -909,7 +921,21 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
       case "pen_changepensizeby":
       case "pen_setpensizeto":
       case "sensing_askandwait":
-      case "sensing_resettimer":
+        break;
+      case "looks_changeeffectby": {
+        const effect = (getFieldValue(block, "EFFECT") ?? "color").toLowerCase().replace(/\s/g, "") as GraphicEffect;
+        const validEffects: GraphicEffect[] = ["color", "fisheye", "whirl", "pixelate", "mosaic", "brightness", "ghost"];
+        nodes.push({ type: "changeGraphicEffect", effect: validEffects.includes(effect) ? effect : "color", amount: readInputValue(block, "CHANGE", blocks) });
+        break;
+      }
+      case "looks_seteffectto": {
+        const effect = (getFieldValue(block, "EFFECT") ?? "color").toLowerCase().replace(/\s/g, "") as GraphicEffect;
+        const validEffects: GraphicEffect[] = ["color", "fisheye", "whirl", "pixelate", "mosaic", "brightness", "ghost"];
+        nodes.push({ type: "setGraphicEffect", effect: validEffects.includes(effect) ? effect : "color", value: readInputValue(block, "VALUE", blocks) });
+        break;
+      }
+      case "looks_cleargraphiceffects":
+        nodes.push({ type: "clearGraphicEffects" });
         break;
       case "procedures_callnoreturn":
         nodes.push({ type: "customCall", name: getFieldValue(block, "VALUE") || "block" });

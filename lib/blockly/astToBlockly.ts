@@ -34,14 +34,17 @@ function init(block: Blockly.Block) {
 }
 
 function createConditionBlock(workspace: Blockly.Workspace, condition: ScriptCondition): Blockly.Block {
+  let block: Blockly.Block;
   switch (condition.type) {
     case "keyPressed": {
-      const block = workspace.newBlock("sensing_key_pressed");
+      block = workspace.newBlock("sensing_key_pressed");
       setField(block, "KEY", condition.key);
       return init(block);
     }
-    case "touchingEdge":
-      return init(workspace.newBlock("sensing_touching_edge"));
+    case "touchingObject":
+      block = workspace.newBlock("sensing_touching_object");
+      setField(block, "OBJ", condition.object);
+      return init(block);
     case "mouseDown":
       return init(workspace.newBlock("sensing_mouse_down"));
     case "anyKeyPressed":
@@ -117,21 +120,22 @@ function createStatementBlock(workspace: Blockly.Workspace, node: ScriptNode): B
       block = workspace.newBlock("motion_point_direction");
       setField(block, "DIRECTION", primitive(node.direction, 90));
       return init(block);
-    case "ifOnEdgeBounce":
+case "ifOnEdgeBounce":
       return init(workspace.newBlock("motion_if_on_edge_bounce"));
-    case "goToMouse":
-      return init(workspace.newBlock("motion_go_to_mouse"));
-    case "goToRandom":
-      return init(workspace.newBlock("motion_go_to_random"));
-    case "pointTowardMouse":
-      return init(workspace.newBlock("motion_point_toward_mouse"));
-    case "pointTowardCenter":
-      return init(workspace.newBlock("motion_point_toward_center"));
+    case "pointTowardObject":
+      block = workspace.newBlock("motion_point_toward_object");
+      setField(block, "OBJ", node.object);
+      return init(block);
+    case "goToObject":
+      block = workspace.newBlock("motion_go_to_object");
+      setField(block, "OBJ", node.object);
+      return init(block);
     case "glideToPosition":
       block = workspace.newBlock("motion_glide_xy");
       return init(block);
-    case "glideToMouse":
-      block = workspace.newBlock("motion_glide_mouse");
+    case "glideToObject":
+      block = workspace.newBlock("motion_glide_object");
+      setField(block, "OBJ", node.object);
       return init(block);
     case "say":
       block = workspace.newBlock("looks_say");

@@ -104,8 +104,8 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
       return { type: "sensing", property: "mouseY" };
     case "sensing_timer":
       return { type: "sensing", property: "timer" };
-    case "sensing_distance_to_center":
-      return { type: "sensing", property: "distanceToCenter" };
+    case "sensing_distance_to":
+      return { type: "distanceToObject", object: String(block.getFieldValue("OBJ") ?? "center") };
     case "sensing_current_time": {
       const unit = String(block.getFieldValue("UNIT"));
       return { type: "sensing", property: unit === "MINUTE" ? "currentMinute" : unit === "HOUR" ? "currentHour" : "currentSecond" };
@@ -196,8 +196,8 @@ function parseCondition(block: Blockly.Block | null, bindings: ValueBindings = n
     }
     case "sensing_key_pressed":
       return { type: "keyPressed", key: String(block.getFieldValue("KEY")) as KeyName };
-    case "sensing_touching_edge":
-      return { type: "touchingEdge" };
+    case "sensing_touching_object":
+      return { type: "touchingObject", object: String(block.getFieldValue("OBJ") ?? "edge") };
     case "sensing_mouse_down":
       return { type: "mouseDown" };
     case "sensing_any_key_pressed":
@@ -323,25 +323,25 @@ function parseStack(startBlock: Blockly.Block | null, definitions: CustomDefinit
         program.push({ type: "pointInDirection", direction: getValueInput(block, "DIRECTION", 90, bindings) });
         break;
       case "motion_if_on_edge_bounce":
+program.push({ type: "ifOnEdgeBounce" });
+        break;
+      case "motion_point_toward_object":
+        program.push({ type: "pointTowardObject", object: String(block.getFieldValue("OBJ") ?? "mouse-pointer") });
+        break;
+      case "motion_if_on_edge_bounce":
         program.push({ type: "ifOnEdgeBounce" });
         break;
-      case "motion_go_to_mouse":
-        program.push({ type: "goToMouse" });
-        break;
-      case "motion_go_to_random":
-        program.push({ type: "goToRandom" });
-        break;
-      case "motion_point_toward_mouse":
-        program.push({ type: "pointTowardMouse" });
-        break;
-      case "motion_point_toward_center":
-        program.push({ type: "pointTowardCenter" });
+      case "motion_go_to_object":
+        program.push({ type: "goToObject", object: String(block.getFieldValue("OBJ") ?? "mouse-pointer") });
         break;
       case "motion_glide_xy":
         program.push({ type: "glideToPosition", seconds: getValueInput(block, "SECONDS", 1, bindings), x: getValueInput(block, "X", 0, bindings), y: getValueInput(block, "Y", 0, bindings) });
         break;
-      case "motion_glide_mouse":
-        program.push({ type: "glideToMouse", seconds: getValueInput(block, "SECONDS", 1, bindings) });
+      case "motion_glide_object":
+        program.push({ type: "glideToObject", seconds: getValueInput(block, "SECONDS", 1, bindings), object: String(block.getFieldValue("OBJ") ?? "mouse-pointer") });
+        break;
+      case "motion_glide_xy":
+        program.push({ type: "glideToPosition", seconds: getValueInput(block, "SECONDS", 1, bindings), x: getValueInput(block, "X", 0, bindings), y: getValueInput(block, "Y", 0, bindings) });
         break;
       case "looks_say":
         program.push({ type: "say", text: String(block.getFieldValue("TEXT") ?? "") });

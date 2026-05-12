@@ -85,6 +85,8 @@ const supportedStatementOpcodes = new Set<string>([
   "motion_sety",
   "motion_pointindirection",
   "motion_ifonedgebounce",
+  "motion_goto",
+  "motion_pointtowards",
   "motion_glidesecstoxy",
   "motion_glideto",
   "looks_say",
@@ -579,8 +581,10 @@ function parseCondition(blockId: string | null, blocks: Record<string, ScratchBl
       return { type: "compare", operator: "<", left: readInputValue(block, "OPERAND1", blocks), right: readInputValue(block, "OPERAND2", blocks) };
     case "sensing_keypressed":
       return { type: "keyPressed", key: getFieldValue(block, "KEY_OPTION") || "space" };
-    case "sensing_touchingobject":
-      return { type: "touchingEdge" };
+    case "sensing_touchingobject": {
+      const obj = getFieldValue(block, "TOUCHINGOBJECTMENU") || getFieldValue(block, "OBJECT") || "edge";
+      return { type: "touchingObject", object: obj === "_mouse_" ? "mouse-pointer" : obj };
+    }
     case "sensing_mousedown":
       return { type: "mouseDown" };
     case "operator_contains":
@@ -592,7 +596,7 @@ function parseCondition(blockId: string | null, blocks: Record<string, ScratchBl
       return { type: "boolean", value: value.toLowerCase() === "true" };
     }
     case "sensing_touchingcolor":
-      return { type: "touchingEdge" };
+      return { type: "touchingObject", object: "edge" };
     case "sensing_coloristouchingcolor":
       return { type: "boolean", value: false };
     case "argument_reporter_boolean":
@@ -690,8 +694,10 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
       return "";
     case "sound_volume":
       return { type: "soundVolume" };
-    case "sensing_distanceto":
-      return { type: "sensing", property: "distanceToCenter" };
+    case "sensing_distanceto": {
+      const obj = getFieldValue(block, "DISTANCETOMENU") || getFieldValue(block, "OBJECT") || "center";
+      return { type: "distanceToObject", object: obj === "_mouse_" ? "mouse-pointer" : obj === "_edge_" ? "edge" : obj };
+    }
     case "sensing_touchingobjectmenu":
       return getFieldValue(block, "TOUCHINGOBJECTMENU");
     case "sensing_distancetomenu":
@@ -754,11 +760,24 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
       case "motion_ifonedgebounce":
         nodes.push({ type: "ifOnEdgeBounce" });
         break;
+      case "motion_goto": {
+        const gotoObj = getFieldValue(block, "TO") || "_mouse_";
+        nodes.push({ type: "goToObject", object: gotoObj === "_mouse_" ? "mouse-pointer" : gotoObj === "_random_" ? "random position" : gotoObj });
+        break;
+      }
+      case "motion_pointtowards": {
+        const pointObj = getFieldValue(block, "TOWARDS") || "_mouse_";
+        nodes.push({ type: "pointTowardObject", object: pointObj === "_mouse_" ? "mouse-pointer" : pointObj });
+        break;
+      }
       case "motion_glidesecstoxy":
         nodes.push({ type: "glideToPosition", seconds: readInputValue(block, "SECS", blocks), x: readInputValue(block, "X", blocks), y: readInputValue(block, "Y", blocks) });
         break;
-      case "motion_glideto":
-        nodes.push({ type: "glideToMouse", seconds: readInputValue(block, "SECS", blocks) });
+      case "motion_glideto": {
+        const glideObj = getFieldValue(block, "TO") || "_mouse_";
+        nodes.push({ type: "glideToObject", seconds: readInputValue(block, "SECS", blocks), object: glideObj === "_mouse_" ? "mouse-pointer" : glideObj });
+        break;
+      }
         break;
       case "looks_say":
         nodes.push({ type: "say", text: readInputValue(block, "MESSAGE", blocks) });

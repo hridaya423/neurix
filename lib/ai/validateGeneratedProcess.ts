@@ -33,8 +33,10 @@ function validateCondition(value: unknown, depth: number): ScriptCondition {
       const key = keys.includes(value.key as KeyName) ? value.key as KeyName : "Space";
       return { type: "keyPressed", key };
     }
-    case "touchingEdge":
-      return { type: "touchingEdge" };
+    case "touchingObject": {
+      const object = typeof value.object === "string" ? value.object : "edge";
+      return { type: "touchingObject", object };
+    }
     case "not":
       return { type: "not", condition: validateCondition(value.condition, depth + 1) };
     case "and":

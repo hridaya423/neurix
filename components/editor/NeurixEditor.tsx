@@ -1649,6 +1649,40 @@ export default function NeurixEditor({
           const padding = clamp(sprite.size * 0.12, 4, 36);
           return sprite.x <= stageRange.minX + padding || sprite.x >= stageRange.maxX - padding || sprite.y <= stageRange.minY + padding || sprite.y >= stageRange.maxY - padding;
         },
+        touchingMousePointer: () => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite) return false;
+          const dx = mouseRef.current.x - sprite.x;
+          const dy = mouseRef.current.y - sprite.y;
+          const sizeScale = clamp(sprite.size, 1, 1000) / 100;
+          return Math.abs(dx) <= 25 * sizeScale && Math.abs(dy) <= 25 * sizeScale;
+        },
+        touchingSprite: (name: string) => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite) return false;
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone && item.id !== spriteId);
+          const clone = other ?? spritesRef.current.find((item) => item.name === name && item.id !== spriteId);
+          if (!clone) return false;
+          const sizeA = clamp(sprite.size, 1, 1000) / 100;
+          const sizeB = clamp(clone.size, 1, 1000) / 100;
+          return Math.abs(sprite.x - clone.x) <= (25 * sizeA + 25 * sizeB) && Math.abs(sprite.y - clone.y) <= (25 * sizeA + 25 * sizeB);
+        },
+        distanceToSprite: (name: string) => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite) return 0;
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone && item.id !== spriteId);
+          const clone = other ?? spritesRef.current.find((item) => item.name === name && item.id !== spriteId);
+          if (!clone) return 0;
+          return Math.round(Math.hypot(sprite.x - clone.x, sprite.y - clone.y));
+        },
+        getSpriteX: (name: string) => {
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
+          return other?.x ?? 0;
+        },
+        getSpriteY: (name: string) => {
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
+          return other?.y ?? 0;
+        },
         move: (steps) => {
           setSprites((curr) =>
             curr.map((sprite) => {
@@ -2139,6 +2173,7 @@ export default function NeurixEditor({
                   backdrops={backdropOptions}
                   costumes={costumeOptions}
                   sounds={soundOptions}
+                  sprites={sprites.filter((s) => !s.isClone).map((s) => ({ name: s.name }))}
                   variableNames={variableNames}
                   cloudVariableNames={cloudVariableNames}
                   listNames={listNames}

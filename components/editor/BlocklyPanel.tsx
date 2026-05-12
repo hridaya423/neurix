@@ -21,6 +21,7 @@ type BlocklyPanelProps = {
   backdrops: { id: string; name: string }[];
   costumes?: { id: string; name: string }[];
   sounds?: { id: string; name: string }[];
+  sprites?: { name: string }[];
   variableNames?: string[];
   cloudVariableNames?: string[];
   listNames?: string[];
@@ -93,6 +94,7 @@ const backdropOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, strin
 const costumeOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
 const soundOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
 const listOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
+const spriteOptionsByWorkspace = new WeakMap<Blockly.Workspace, [string, string][]>();
 const variableControlsByWorkspace = new WeakMap<Blockly.Workspace, {
   visibleNames: Set<string>;
   toggle: (name: string) => void;
@@ -305,10 +307,8 @@ const CUSTOM_BLOCKS = [
     nextStatement: null,
     style: "motion_blocks",
   },
-  { type: "motion_go_to_mouse", message0: "go to mouse", previousStatement: null, nextStatement: null, style: "motion_blocks" },
-  { type: "motion_go_to_random", message0: "go to random position", previousStatement: null, nextStatement: null, style: "motion_blocks" },
-  { type: "motion_point_toward_mouse", message0: "point toward mouse", previousStatement: null, nextStatement: null, style: "motion_blocks" },
-  { type: "motion_point_toward_center", message0: "point toward center", previousStatement: null, nextStatement: null, style: "motion_blocks" },
+  { type: "motion_go_to_object", message0: "go to %1", args0: [{ type: "field_dropdown", name: "OBJ", options: [["mouse-pointer", "mouse-pointer"], ["random position", "random position"]] }], previousStatement: null, nextStatement: null, style: "motion_blocks" },
+  { type: "motion_point_toward_object", message0: "point toward %1", args0: [{ type: "field_dropdown", name: "OBJ", options: [["mouse-pointer", "mouse-pointer"]] }], previousStatement: null, nextStatement: null, style: "motion_blocks" },
   {
     type: "motion_glide_xy",
     message0: "glide %1 sec to x %2 y %3",
@@ -324,8 +324,8 @@ const CUSTOM_BLOCKS = [
   },
   {
     type: "motion_glide_mouse",
-    message0: "glide %1 sec to mouse",
-    args0: [{ type: "input_value", name: "SECONDS", check: "Number" }],
+    message0: "glide %1 sec to %2",
+    args0: [{ type: "input_value", name: "SECONDS", check: "Number" }, { type: "field_dropdown", name: "OBJ", options: [["mouse-pointer", "mouse-pointer"]] }],
     previousStatement: null,
     nextStatement: null,
     style: "motion_blocks",
@@ -687,8 +687,9 @@ const CUSTOM_BLOCKS = [
     style: "sensing_blocks",
   },
   {
-    type: "sensing_touching_edge",
-    message0: "touching edge?",
+    type: "sensing_touching_object",
+    message0: "touching %1?",
+    args0: [{ type: "field_dropdown", name: "OBJ", options: [["edge", "edge"], ["mouse-pointer", "mouse-pointer"]] }],
     output: "Boolean",
     style: "sensing_blocks",
   },
@@ -697,7 +698,7 @@ const CUSTOM_BLOCKS = [
   { type: "sensing_mouse_x", message0: "mouse x", output: "Number", style: "sensing_blocks" },
   { type: "sensing_mouse_y", message0: "mouse y", output: "Number", style: "sensing_blocks" },
   { type: "sensing_timer", message0: "timer", output: "Number", style: "sensing_blocks" },
-  { type: "sensing_distance_to_center", message0: "distance to center", output: "Number", style: "sensing_blocks" },
+  { type: "sensing_distance_to", message0: "distance to %1", args0: [{ type: "field_dropdown", name: "OBJ", options: [["mouse-pointer", "mouse-pointer"], ["center", "center"]] }], output: "Number", style: "sensing_blocks" },
   { type: "sensing_last_key", message0: "last key", output: "String", style: "sensing_blocks" },
   { type: "sensing_current_time",
     message0: "current %1",
@@ -987,13 +988,11 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "motion_change_y_value", inputs: { DY: { shadow: { type: "math_number", fields: { NUM: 10 } } } } },
         { kind: "block", type: "motion_set_y_value", inputs: { Y: { shadow: { type: "math_number", fields: { NUM: 0 } } } } },
         { kind: "block", type: "motion_point_direction_value", inputs: { DIRECTION: { shadow: { type: "math_number", fields: { NUM: 90 } } } } },
-        { kind: "block", type: "motion_point_toward_mouse" },
-        { kind: "block", type: "motion_point_toward_center" },
+        { kind: "block", type: "motion_point_toward_object" },
         { kind: "block", type: "motion_if_on_edge_bounce" },
-        { kind: "block", type: "motion_go_to_mouse" },
-        { kind: "block", type: "motion_go_to_random" },
+        { kind: "block", type: "motion_go_to_object" },
         { kind: "block", type: "motion_glide_xy", inputs: { SECONDS: { shadow: { type: "math_number", fields: { NUM: 1 } } }, X: { shadow: { type: "math_number", fields: { NUM: 0 } } }, Y: { shadow: { type: "math_number", fields: { NUM: 0 } } } } },
-        { kind: "block", type: "motion_glide_mouse", inputs: { SECONDS: { shadow: { type: "math_number", fields: { NUM: 1 } } } } },
+        { kind: "block", type: "motion_glide_object", inputs: { SECONDS: { shadow: { type: "math_number", fields: { NUM: 1 } } } } },
         { kind: "block", type: "motion_x_position" },
         { kind: "block", type: "motion_y_position" },
         { kind: "block", type: "motion_direction_reporter" },
@@ -1068,14 +1067,14 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       name: "Sensing",
       categorystyle: "sensing_category",
       contents: [
+        { kind: "block", type: "sensing_touching_object" },
         { kind: "block", type: "sensing_key_pressed" },
-        { kind: "block", type: "sensing_touching_edge" },
         { kind: "block", type: "sensing_mouse_down" },
         { kind: "block", type: "sensing_any_key_pressed" },
         { kind: "block", type: "sensing_mouse_x" },
         { kind: "block", type: "sensing_mouse_y" },
         { kind: "block", type: "sensing_timer" },
-        { kind: "block", type: "sensing_distance_to_center" },
+        { kind: "block", type: "sensing_distance_to" },
         { kind: "block", type: "sensing_last_key" },
         { kind: "block", type: "sensing_current_time" },
         { kind: "block", type: "sensing_resettimer" },
@@ -1318,6 +1317,11 @@ const THEME = Blockly.Theme.defineTheme("neurix_light", {
       colourTertiary: "#E0445F",
     },
     list_blocks: {
+      colourPrimary: "#FF8C1A",
+      colourSecondary: "#FF8000",
+      colourTertiary: "#DB6E00",
+    },
+    data_blocks: {
       colourPrimary: "#FF8C1A",
       colourSecondary: "#FF8000",
       colourTertiary: "#DB6E00",
@@ -1779,6 +1783,20 @@ function listMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
   return listOptionsByWorkspace.get(sourceBlock.workspace) ?? [["list", "list"]];
 }
 
+function objectMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
+  const sourceBlock = this.getSourceBlock();
+  if (!sourceBlock) return [["edge", "edge"], ["mouse-pointer", "mouse-pointer"]];
+  const sprites = spriteOptionsByWorkspace.get(sourceBlock.workspace) ?? [];
+  return [["edge", "edge"], ["mouse-pointer", "mouse-pointer"], ...sprites];
+}
+
+function spriteObjectMenuGenerator(this: Blockly.FieldDropdown): [string, string][] {
+  const sourceBlock = this.getSourceBlock();
+  if (!sourceBlock) return [["mouse-pointer", "mouse-pointer"]];
+  const sprites = spriteOptionsByWorkspace.get(sourceBlock.workspace) ?? [];
+  return [["mouse-pointer", "mouse-pointer"], ["random position", "random position"], ...sprites];
+}
+
 function formatBackdropOptions(backdrops: { id: string; name: string }[]) {
   return backdrops.length > 0
     ? backdrops.map((backdrop, index) => [backdrop.name.trim() || `Backdrop ${index + 1}`, backdrop.id] as [string, string])
@@ -1862,6 +1880,31 @@ function refreshListFields(workspace: Blockly.Workspace, lists: string[]) {
       if (!field) continue;
       field.setOptions(listMenuGenerator);
       if (!ids.has(field.getValue() ?? "")) field.setValue(options[0][1]);
+    }
+  }
+}
+
+function formatSpriteOptions(sprites: { name: string }[]) {
+  return sprites.map((sprite) => [sprite.name, sprite.name] as [string, string]);
+}
+
+function refreshSpriteFields(workspace: Blockly.Workspace, sprites: { name: string }[]) {
+  const options = formatSpriteOptions(sprites);
+  spriteOptionsByWorkspace.set(workspace, options);
+
+  for (const type of ["sensing_touching_object", "sensing_distance_to"]) {
+    for (const block of workspace.getBlocksByType(type, false)) {
+      const field = block.getField("OBJ") as Blockly.FieldDropdown | null;
+      if (!field) continue;
+      field.setOptions(objectMenuGenerator);
+    }
+  }
+
+  for (const type of ["motion_go_to_object", "motion_point_toward_object", "motion_glide_object"]) {
+    for (const block of workspace.getBlocksByType(type, false)) {
+      const field = block.getField("OBJ") as Blockly.FieldDropdown | null;
+      if (!field) continue;
+      field.setOptions(spriteObjectMenuGenerator);
     }
   }
 }
@@ -2464,6 +2507,62 @@ function registerCustomBlocks() {
     },
   };
 
+  Blockly.Blocks["sensing_touching_object"] = {
+    init: function () {
+      this.appendDummyInput()
+        .appendField("touching")
+        .appendField(new Blockly.FieldDropdown(objectMenuGenerator), "OBJ")
+        .appendField("?");
+      this.setOutput(true, "Boolean");
+      this.setStyle("sensing_blocks");
+    },
+  };
+
+  Blockly.Blocks["sensing_distance_to"] = {
+    init: function () {
+      this.appendDummyInput()
+        .appendField("distance to")
+        .appendField(new Blockly.FieldDropdown(objectMenuGenerator), "OBJ");
+      this.setOutput(true, "Number");
+      this.setStyle("sensing_blocks");
+    },
+  };
+
+  Blockly.Blocks["motion_go_to_object"] = {
+    init: function () {
+      this.appendDummyInput()
+        .appendField("go to")
+        .appendField(new Blockly.FieldDropdown(spriteObjectMenuGenerator), "OBJ");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("motion_blocks");
+    },
+  };
+
+  Blockly.Blocks["motion_point_toward_object"] = {
+    init: function () {
+      this.appendDummyInput()
+        .appendField("point toward")
+        .appendField(new Blockly.FieldDropdown(spriteObjectMenuGenerator), "OBJ");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("motion_blocks");
+    },
+  };
+
+  Blockly.Blocks["motion_glide_object"] = {
+    init: function () {
+      this.appendValueInput("SECONDS")
+        .setCheck("Number")
+        .appendField("glide")
+        .appendField(new Blockly.FieldDropdown(spriteObjectMenuGenerator), "OBJ")
+        .appendField("sec to");
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setStyle("motion_blocks");
+    },
+  };
+
   customBlocksRegistered = true;
 }
 
@@ -2518,7 +2617,7 @@ async function readTextStream(response: Response, onChunk: (text: string) => voi
   }
 }
 
-export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], sounds = [], variableNames = [], cloudVariableNames = [], listNames = [], visibleWatcherNames = [], visibleListWatcherNames = [], workspaceState, onWorkspaceChange, onVariableCreate, onCloudVariableCreate, onVariableDelete, onVariableWatcherToggle, onListWatcherVisibleChange, onListCreate, onListDelete }: BlocklyPanelProps) {
+export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "sprite", backdrops, costumes = [], sounds = [], sprites = [], variableNames = [], cloudVariableNames = [], listNames = [], visibleWatcherNames = [], visibleListWatcherNames = [], workspaceState, onWorkspaceChange, onVariableCreate, onCloudVariableCreate, onVariableDelete, onVariableWatcherToggle, onListWatcherVisibleChange, onListCreate, onListDelete }: BlocklyPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const initialSpriteIdRef = useRef(activeSpriteId);
@@ -2528,6 +2627,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
   const backdropsRef = useRef(backdrops);
   const costumesRef = useRef(costumes);
   const soundsRef = useRef(sounds);
+  const spritesRef = useRef(sprites);
   const variableNamesRef = useRef(variableNames);
   const cloudVariableNamesRef = useRef(cloudVariableNames);
   const listNamesRef = useRef(listNames);
@@ -2589,6 +2689,15 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       workspace.refreshToolboxSelection();
     }
   }, [sounds]);
+
+  useEffect(() => {
+    spritesRef.current = sprites;
+    const workspace = workspaceRef.current;
+    if (workspace) {
+      refreshSpriteFields(workspace, sprites);
+      workspace.refreshToolboxSelection();
+    }
+  }, [sprites]);
 
   useEffect(() => {
     variableNamesRef.current = variableNames;
@@ -2965,6 +3074,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
     refreshCostumeFields(workspace, costumesRef.current);
     refreshSoundFields(workspace, soundsRef.current);
     refreshListFields(workspace, listNamesRef.current);
+    refreshSpriteFields(workspace, spritesRef.current);
     variableControlsByWorkspace.set(workspace, {
       visibleNames: new Set(visibleWatcherNamesRef.current),
       toggle: (name) => onVariableWatcherToggle?.(name),

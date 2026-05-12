@@ -8,6 +8,11 @@ export type ScriptRuntime = {
   anyKeyDown: () => boolean;
   lastKey: () => string;
   touchingEdge: () => boolean;
+  touchingMousePointer: () => boolean;
+  touchingSprite: (name: string) => boolean;
+  distanceToSprite: (name: string) => number;
+  getSpriteX: (name: string) => number;
+  getSpriteY: (name: string) => number;
   mouseDown: () => boolean;
   getMouseX: () => number;
   getMouseY: () => number;
@@ -128,6 +133,10 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
       if (value.property === "currentHour") return new Date().getHours();
       if (value.property === "lastKey") return runtime.lastKey();
       return Math.round(Math.hypot(runtime.getX(), runtime.getY()));
+    case "distanceToObject":
+      if (value.object === "mouse-pointer") return Math.round(Math.hypot(runtime.getMouseX() - runtime.getX(), runtime.getMouseY() - runtime.getY()));
+      if (value.object === "center" || value.object === "edge") return Math.round(Math.hypot(runtime.getX(), runtime.getY()));
+      return Math.round(runtime.distanceToSprite(value.object));
     case "random": {
       const from = toNumber(valueOf(value.from, runtime, variables));
       const to = toNumber(valueOf(value.to, runtime, variables));
@@ -186,8 +195,10 @@ function isConditionTrue(condition: ScriptCondition, runtime: ScriptRuntime, var
   switch (condition.type) {
     case "keyPressed":
       return runtime.keyDown(condition.key);
-    case "touchingEdge":
-      return runtime.touchingEdge();
+    case "touchingObject":
+      if (condition.object === "edge") return runtime.touchingEdge();
+      if (condition.object === "mouse-pointer") return runtime.touchingMousePointer();
+      return runtime.touchingSprite(condition.object);
     case "mouseDown":
       return runtime.mouseDown();
     case "anyKeyPressed":
@@ -264,28 +275,26 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       runtime.ifOnEdgeBounce();
       await runtime.wait(100);
       break;
-    case "goToMouse":
-      runtime.setPosition(runtime.getMouseX(), runtime.getMouseY());
+    case "goToObject":
+      if (node.object === "mouse-pointer") {
+        runtime.setPosition(runtime.getMouseX(), runtime.getMouseY());
+      } else if (node.object === "random position") {
+        runtime.setPosition(Math.round(Math.random() * 480 - 240), Math.round(Math.random() * 360 - 180));
+      } else {
+        runtime.setPosition(runtime.getSpriteX(node.object), runtime.getSpriteY(node.object));
+      }
       await runtime.wait(100);
       break;
-    case "goToRandom":
-      runtime.setPosition(Math.round(Math.random() * 480 - 240), Math.round(Math.random() * 360 - 180));
+    case "pointTowardObject":
+      if (node.object === "mouse-pointer") {
+        runtime.setDirection((Math.atan2(runtime.getMouseX() - runtime.getX(), runtime.getMouseY() - runtime.getY()) * 180) / Math.PI);
+      } else if (node.object === "center") {
+        runtime.setDirection((Math.atan2(-runtime.getX(), -runtime.getY()) * 180) / Math.PI);
+      } else {
+        runtime.setDirection((Math.atan2(runtime.getSpriteX(node.object) - runtime.getX(), runtime.getSpriteY(node.object) - runtime.getY()) * 180) / Math.PI);
+      }
       await runtime.wait(100);
       break;
-    case "pointTowardMouse": {
-      const dx = runtime.getMouseX() - runtime.getX();
-      const dy = runtime.getMouseY() - runtime.getY();
-      runtime.setDirection((Math.atan2(dx, dy) * 180) / Math.PI);
-      await runtime.wait(100);
-      break;
-    }
-    case "pointTowardCenter": {
-      const dx = -runtime.getX();
-      const dy = -runtime.getY();
-      runtime.setDirection((Math.atan2(dx, dy) * 180) / Math.PI);
-      await runtime.wait(100);
-      break;
-    }
     case "glideToPosition": {
       const seconds = Math.max(0, toNumber(valueOf(node.seconds, runtime, variables)));
       const startX = runtime.getX();
@@ -300,12 +309,19 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       }
       break;
     }
-    case "glideToMouse": {
+    case "glideToObject": {
       const seconds = Math.max(0, toNumber(valueOf(node.seconds, runtime, variables)));
       const startX = runtime.getX();
       const startY = runtime.getY();
-      const targetX = runtime.getMouseX();
-      const targetY = runtime.getMouseY();
+      let targetX: number;
+      let targetY: number;
+      if (node.object === "mouse-pointer") {
+        targetX = runtime.getMouseX();
+        targetY = runtime.getMouseY();
+      } else {
+        targetX = runtime.getSpriteX(node.object);
+        targetY = runtime.getSpriteY(node.object);
+      }
       const steps = Math.max(1, Math.ceil((seconds * 1000) / 16));
       for (let i = 1; i <= steps && !runtime.isCancelled(); i += 1) {
         const t = i / steps;

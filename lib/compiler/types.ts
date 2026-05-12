@@ -11,7 +11,8 @@ export type ScriptValue =
   | { type: "spriteProperty"; property: "x" | "y" | "direction" | "size" }
   | { type: "stageProperty"; property: "backdropName" | "backdropNumber" }
   | { type: "costumeProperty"; property: "costumeName" | "costumeNumber" }
-  | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "distanceToCenter" | "lastKey" }
+  | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "lastKey" }
+  | { type: "distanceToObject"; object: string }
   | { type: "random"; from: ScriptValue; to: ScriptValue }
   | { type: "arithmetic"; operator: "+" | "-" | "*" | "/" | "%" | "^"; left: ScriptValue; right: ScriptValue }
   | { type: "round"; value: ScriptValue }
@@ -26,7 +27,7 @@ export type ScriptValue =
 
 export type ScriptCondition =
   | { type: "keyPressed"; key: KeyName }
-  | { type: "touchingEdge" }
+  | { type: "touchingObject"; object: string }
   | { type: "mouseDown" }
   | { type: "anyKeyPressed" }
   | { type: "boolean"; value: boolean }
@@ -48,13 +49,11 @@ export type ScriptNode =
   | { type: "setY"; y: ScriptValue }
   | { type: "setDirection"; direction: ScriptValue }
   | { type: "pointInDirection"; direction: ScriptValue }
-  | { type: "pointTowardMouse" }
-  | { type: "pointTowardCenter" }
+  | { type: "pointTowardObject"; object: string }
   | { type: "ifOnEdgeBounce" }
-  | { type: "goToMouse" }
-  | { type: "goToRandom" }
+  | { type: "goToObject"; object: string }
   | { type: "glideToPosition"; seconds: ScriptValue; x: ScriptValue; y: ScriptValue }
-  | { type: "glideToMouse"; seconds: ScriptValue }
+  | { type: "glideToObject"; seconds: ScriptValue; object: string }
   | { type: "say"; text: ScriptValue }
   | { type: "sayForSeconds"; text: ScriptValue; seconds: ScriptValue }
   | { type: "think"; text: ScriptValue }

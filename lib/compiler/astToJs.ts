@@ -33,7 +33,11 @@ function valueToJs(value: ScriptValue): string {
       if (value.property === "currentMinute") return "new Date().getMinutes()";
       if (value.property === "currentHour") return "new Date().getHours()";
       if (value.property === "lastKey") return "api.lastKey()";
-      return "Math.round(Math.hypot(sprite.x, sprite.y))";
+      return "0";
+    case "distanceToObject":
+      if (value.object === "mouse-pointer") return "Math.round(Math.hypot(api.mouseX() - sprite.x, api.mouseY() - sprite.y))";
+      if (value.object === "edge" || value.object === "center") return "Math.round(Math.hypot(sprite.x, sprite.y))";
+      return `Math.round(api.distanceToSprite(${jsString(value.object)}))`;
     case "random":
       return `Math.floor(Math.random() * (${valueToJs(value.to)} - ${valueToJs(value.from)} + 1)) + ${valueToJs(value.from)}`;
     case "arithmetic":
@@ -70,8 +74,10 @@ function conditionToJs(condition: ScriptCondition): string {
   switch (condition.type) {
     case "keyPressed":
       return `api.keyDown(${jsString(condition.key)})`;
-    case "touchingEdge":
-      return "sprite.touchingEdge()";
+    case "touchingObject":
+      if (condition.object === "edge") return "sprite.touchingEdge()";
+      if (condition.object === "mouse-pointer") return "api.touchingMousePointer()";
+      return `api.touchingSprite(${jsString(condition.object)})`;
     case "mouseDown":
       return "api.mouseDown()";
     case "anyKeyPressed":
@@ -116,19 +122,19 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
         return [line(depth, `sprite.setX(Number(${valueToJs(node.x)}) || 0);`)];
       case "setY":
         return [line(depth, `sprite.setY(Number(${valueToJs(node.y)}) || 0);`)];
-      case "setDirection":
+case "setDirection":
       case "pointInDirection":
         return [line(depth, `sprite.setDirection(Number(${valueToJs(node.direction)}) || 0);`)];
       case "ifOnEdgeBounce":
         return [line(depth, "sprite.ifOnEdgeBounce();")];
-      case "goToMouse":
-        return [line(depth, "sprite.setPosition(api.mouseX(), api.mouseY());")];
-      case "goToRandom":
-        return [line(depth, "sprite.setPosition(Math.round(Math.random() * 480 - 240), Math.round(Math.random() * 360 - 180));")];
-      case "pointTowardMouse":
-        return [line(depth, "sprite.setDirection((Math.atan2(api.mouseX() - sprite.x, api.mouseY() - sprite.y) * 180) / Math.PI);")];
-      case "pointTowardCenter":
-        return [line(depth, "sprite.setDirection((Math.atan2(-sprite.x, -sprite.y) * 180) / Math.PI);")];
+      case "pointTowardObject":
+        if (node.object === "mouse-pointer") return [line(depth, "sprite.setDirection((Math.atan2(api.mouseX() - sprite.x, api.mouseY() - sprite.y) * 180) / Math.PI);")];
+        if (node.object === "center") return [line(depth, "sprite.setDirection((Math.atan2(-sprite.x, -sprite.y) * 180) / Math.PI);")];
+        return [line(depth, `sprite.setDirection((Math.atan2(api.getSpriteX(${jsString(node.object)}) - sprite.x, api.getSpriteY(${jsString(node.object)}) - sprite.y) * 180) / Math.PI);`)];
+      case "goToObject":
+        if (node.object === "mouse-pointer") return [line(depth, "sprite.setPosition(api.mouseX(), api.mouseY());")];
+        if (node.object === "random position" || node.object === "random position") return [line(depth, "sprite.setPosition(Math.round(Math.random() * 480 - 240), Math.round(Math.random() * 360 - 180));")];
+        return [line(depth, `sprite.setPosition(api.getSpriteX(${jsString(node.object)}), api.getSpriteY(${jsString(node.object)}));`)];
       case "glideToPosition":
         return [
           line(depth, `{`),
@@ -144,14 +150,15 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
           line(depth + 1, `}`),
           line(depth, `}`),
         ];
-      case "glideToMouse":
-        return [
+      case "glideToObject": {
+        const glideSeconds = valueToJs(node.seconds);
+        if (node.object === "mouse-pointer") return [
           line(depth, `{`),
           line(depth + 1, `const startX = sprite.x;`),
           line(depth + 1, `const startY = sprite.y;`),
           line(depth + 1, `const targetX = api.mouseX();`),
           line(depth + 1, `const targetY = api.mouseY();`),
-          line(depth + 1, `const steps = Math.max(1, Math.ceil((Math.max(0, Number(${valueToJs(node.seconds)}) || 0) * 1000) / 16));`),
+          line(depth + 1, `const steps = Math.max(1, Math.ceil((Math.max(0, Number(${glideSeconds}) || 0) * 1000) / 16));`),
           line(depth + 1, `for (let i = 1; i <= steps; i += 1) {`),
           line(depth + 2, `const t = i / steps;`),
           line(depth + 2, `sprite.setPosition(startX + (targetX - startX) * t, startY + (targetY - startY) * t);`),
@@ -159,6 +166,21 @@ function nodesToJs(nodes: ScriptNode[], depth: number): string[] {
           line(depth + 1, `}`),
           line(depth, `}`),
         ];
+        return [
+          line(depth, `{`),
+          line(depth + 1, `const startX = sprite.x;`),
+          line(depth + 1, `const startY = sprite.y;`),
+          line(depth + 1, `const targetX = api.getSpriteX(${jsString(node.object)});`),
+          line(depth + 1, `const targetY = api.getSpriteY(${jsString(node.object)});`),
+          line(depth + 1, `const steps = Math.max(1, Math.ceil((Math.max(0, Number(${glideSeconds}) || 0) * 1000) / 16));`),
+          line(depth + 1, `for (let i = 1; i <= steps; i += 1) {`),
+          line(depth + 2, `const t = i / steps;`),
+          line(depth + 2, `sprite.setPosition(startX + (targetX - startX) * t, startY + (targetY - startY) * t);`),
+          line(depth + 2, `await api.nextFrame();`),
+          line(depth + 1, `}`),
+          line(depth, `}`),
+        ];
+      }
       case "say":
         return [line(depth, `await api.say(String(${valueToJs(node.text)}));`)];
       case "sayForSeconds":

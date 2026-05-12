@@ -32,12 +32,28 @@ function valueToJs(value: ScriptValue): string {
       if (value.property === "currentSecond") return "new Date().getSeconds()";
       if (value.property === "currentMinute") return "new Date().getMinutes()";
       if (value.property === "currentHour") return "new Date().getHours()";
+      if (value.property === "daysSince2000") return "Math.floor((Date.now() - Date.UTC(2000, 0, 1)) / 86400000)";
+      if (value.property === "username") return "api.username?.() ?? \"\"";
       if (value.property === "lastKey") return "api.lastKey()";
       return "0";
     case "distanceToObject":
       if (value.object === "mouse-pointer") return "Math.round(Math.hypot(api.mouseX() - sprite.x, api.mouseY() - sprite.y))";
       if (value.object === "edge" || value.object === "center") return "Math.round(Math.hypot(sprite.x, sprite.y))";
       return `Math.round(api.distanceToSprite(${jsString(value.object)}))`;
+    case "propertyOf":
+      if (value.object === "Stage") {
+        if (value.property === "volume") return "api.getVolume?.() ?? 100";
+        if (value.property === "costumeName") return "api.backdropName()";
+        if (value.property === "costumeNumber") return "api.backdropNumber()";
+        return "0";
+      }
+      if (value.property === "x") return `api.getSpriteX(${jsString(value.object)})`;
+      if (value.property === "y") return `api.getSpriteY(${jsString(value.object)})`;
+      if (value.property === "direction") return `api.getSpriteDirection(${jsString(value.object)})`;
+      if (value.property === "size") return `api.getSpriteSize(${jsString(value.object)})`;
+      if (value.property === "costumeName") return `api.getSpriteCostumeName(${jsString(value.object)})`;
+      if (value.property === "costumeNumber") return `api.getSpriteCostumeNumber(${jsString(value.object)})`;
+      return `api.getSpriteVolume(${jsString(value.object)})`;
     case "random":
       return `Math.floor(Math.random() * (${valueToJs(value.to)} - ${valueToJs(value.from)} + 1)) + ${valueToJs(value.from)}`;
     case "arithmetic":
@@ -67,6 +83,8 @@ function valueToJs(value: ScriptValue): string {
       return `api.getList(${jsString(value.list)}).length`;
     case "soundVolume":
       return "api.getVolume?.() ?? 100";
+    case "answer":
+      return "api.getAnswer?.() ?? \"\"";
   }
 }
 
@@ -78,6 +96,10 @@ function conditionToJs(condition: ScriptCondition): string {
       if (condition.object === "edge") return "sprite.touchingEdge()";
       if (condition.object === "mouse-pointer") return "api.touchingMousePointer()";
       return `api.touchingSprite(${jsString(condition.object)})`;
+    case "touchingColor":
+      return `api.touchingColor?.(${jsString(condition.color)}) ?? false`;
+    case "colorTouchingColor":
+      return `api.colorTouchingColor?.(${jsString(condition.color)}, ${jsString(condition.touching)}) ?? false`;
     case "mouseDown":
       return "api.mouseDown()";
     case "anyKeyPressed":
@@ -219,6 +241,10 @@ case "setDirection":
         return [line(depth, `api.setVariableVisible?.(${jsString(node.name)}, false);`)];
       case "resetTimer":
         return [line(depth, `api.resetTimer?.();`)];
+      case "askAndWait":
+        return [line(depth, `await api.askAndWait?.(String(${valueToJs(node.question)}));`)];
+      case "setDragMode":
+        return [line(depth, `api.setDragMode?.(${jsString(node.mode)});`)];
       case "stop":
         if (node.mode === "all") return [line(depth, "return;")];
         return [line(depth, "return;")];

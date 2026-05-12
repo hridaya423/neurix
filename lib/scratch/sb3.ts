@@ -148,6 +148,7 @@ const supportedStatementOpcodes = new Set<string>([
   "pen_changepensizeby",
   "pen_setpensizeto",
   "sensing_askandwait",
+  "sensing_setdragmode",
   "sensing_resettimer",
   "procedures_definition",
   "procedures_callnoreturn",
@@ -595,10 +596,19 @@ function parseCondition(blockId: string | null, blocks: Record<string, ScratchBl
       const value = getFieldValue(block, "BOOL");
       return { type: "boolean", value: value.toLowerCase() === "true" };
     }
-    case "sensing_touchingcolor":
-      return { type: "touchingObject", object: "edge" };
-    case "sensing_coloristouchingcolor":
-      return { type: "boolean", value: false };
+    case "sensing_touchingcolor": {
+      const color = readInputValue(block, "COLOR", blocks);
+      return { type: "touchingColor", color: typeof color === "string" ? color : "#52c3f0" };
+    }
+    case "sensing_coloristouchingcolor": {
+      const color = readInputValue(block, "COLOR", blocks);
+      const touching = readInputValue(block, "COLOR2", blocks);
+      return {
+        type: "colorTouchingColor",
+        color: typeof color === "string" ? color : "#5b6d7c",
+        touching: typeof touching === "string" ? touching : "#d5e04a",
+      };
+    }
     case "argument_reporter_boolean":
       return { type: "boolean", value: false };
     default:
@@ -680,18 +690,37 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
       return { type: "stageProperty", property: kind === "name" ? "backdropName" : "backdropNumber" };
     }
     case "sensing_answer":
-      return 0;
-    case "sensing_of":
-      return 0;
+      return { type: "answer" };
+    case "sensing_of": {
+      const rawProperty = (getFieldValue(block, "PROPERTY") || getFieldValue(block, "PROPERTYOF") || "x position").toLowerCase();
+      const rawObject = readInputValue(block, "OBJECT", blocks);
+      const object = typeof rawObject === "string" && rawObject.trim().length > 0 ? rawObject : (getFieldValue(block, "OBJECT") || "Stage");
+      const property = rawProperty.includes("x")
+        ? "x"
+        : rawProperty.includes("y")
+          ? "y"
+          : rawProperty.includes("direction")
+            ? "direction"
+            : rawProperty.includes("costume") && rawProperty.includes("name")
+              ? "costumeName"
+              : rawProperty.includes("costume")
+                ? "costumeNumber"
+                : rawProperty.includes("size")
+                  ? "size"
+                  : rawProperty.includes("volume")
+                    ? "volume"
+                    : "x";
+      return { type: "propertyOf", property, object };
+    }
     case "sensing_current": {
       const unit = getFieldValue(block, "CURRENTMENU").toLowerCase();
       const property = unit === "hour" ? "currentHour" : unit === "minute" ? "currentMinute" : "currentSecond";
       return { type: "sensing", property };
     }
     case "sensing_dayssince2000":
-      return 0;
+      return { type: "sensing", property: "daysSince2000" };
     case "sensing_username":
-      return "";
+      return { type: "sensing", property: "username" };
     case "sound_volume":
       return { type: "soundVolume" };
     case "sensing_distanceto": {
@@ -939,8 +968,15 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
       case "pen_setpencolortonum":
       case "pen_changepensizeby":
       case "pen_setpensizeto":
-      case "sensing_askandwait":
         break;
+      case "sensing_askandwait":
+        nodes.push({ type: "askAndWait", question: readInputValue(block, "QUESTION", blocks) });
+        break;
+      case "sensing_setdragmode": {
+        const mode = (getFieldValue(block, "DRAG_MODE") || "draggable").toLowerCase();
+        nodes.push({ type: "setDragMode", mode: mode.includes("not") ? "not draggable" : "draggable" });
+        break;
+      }
       case "looks_changeeffectby": {
         const effect = (getFieldValue(block, "EFFECT") ?? "color").toLowerCase().replace(/\s/g, "") as GraphicEffect;
         const validEffects: GraphicEffect[] = ["color", "fisheye", "whirl", "pixelate", "mosaic", "brightness", "ghost"];

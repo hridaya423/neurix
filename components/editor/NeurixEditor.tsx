@@ -75,6 +75,11 @@ type WatcherDragState = {
   isDragging: boolean;
 };
 
+type SpriteDragState = {
+  id: string;
+  pointerId: number;
+};
+
 export type VariableWatcher = {
   id: string;
   name: string;
@@ -113,6 +118,7 @@ export type SavedSprite = {
   currentCostumeId?: string;
   sounds?: ProjectSound[];
   volume?: number;
+  draggable?: boolean;
   sayText?: string;
   isClone?: boolean;
   sourceId?: string;
@@ -541,6 +547,33 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeHexColor(color: string | undefined) {
+  const value = (color ?? "").trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(value)) return value;
+  if (/^#[0-9a-f]{3}$/.test(value)) {
+    const [, r, g, b] = value;
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return null;
+}
+
+function hexToRgb(hex: string) {
+  const clean = normalizeHexColor(hex);
+  if (!clean) return null;
+  return {
+    r: Number.parseInt(clean.slice(1, 3), 16),
+    g: Number.parseInt(clean.slice(3, 5), 16),
+    b: Number.parseInt(clean.slice(5, 7), 16),
+  };
+}
+
+function colorDistance(a: string, b: string) {
+  const first = hexToRgb(a);
+  const second = hexToRgb(b);
+  if (!first || !second) return Number.POSITIVE_INFINITY;
+  return Math.hypot(first.r - second.r, first.g - second.g, first.b - second.b);
+}
+
 function formatInspectorNumber(value: number) {
   const rounded = Math.round(value * 10) / 10;
   const safeValue = Object.is(rounded, -0) ? 0 : rounded;
@@ -649,7 +682,9 @@ export default function NeurixEditor({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const mouseRef = useRef({ x: 0, y: 0, down: false });
   const watcherDragRef = useRef<WatcherDragState | null>(null);
+  const spriteDragRef = useRef<SpriteDragState | null>(null);
   const timerStartRef = useRef(0);
+  const answerRef = useRef("");
   const sb3InputRef = useRef<HTMLInputElement | null>(null);
   const cloudVariablesRef = useRef(cloudVariables);
   const projectVariablesRef = useRef(projectVariables);
@@ -1083,7 +1118,12 @@ export default function NeurixEditor({
       className={`stage-viewport ${variant === "fullscreen" ? "stage-viewport-fullscreen" : "stage-viewport-panel"}`}
       ref={stageRef}
       style={{ background: currentBackdrop.fill }}
-      onPointerMove={updateMousePosition}
+      onPointerMove={(event) => {
+        updateMousePosition(event);
+        const drag = spriteDragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        updateSprite(drag.id, { x: mouseRef.current.x, y: mouseRef.current.y });
+      }}
       onPointerDown={(event) => {
         setWatcherMenu(null);
         updateMousePosition(event);
@@ -1091,9 +1131,11 @@ export default function NeurixEditor({
       }}
       onPointerUp={() => {
         mouseRef.current.down = false;
+        spriteDragRef.current = null;
       }}
       onPointerLeave={() => {
         mouseRef.current.down = false;
+        spriteDragRef.current = null;
       }}
     >
       {currentBackdrop.image ? (
@@ -1106,6 +1148,15 @@ export default function NeurixEditor({
           key={sprite.id}
           className="stage-sprite"
           style={getStageStyle(sprite, graphicEffectsRef.current[sprite.id])}
+          onPointerDown={(event) => {
+            if (!sprite.draggable) return;
+            event.stopPropagation();
+            updateMousePosition(event);
+            spriteDragRef.current = { id: sprite.id, pointerId: event.pointerId };
+          }}
+          onPointerUp={(event) => {
+            if (spriteDragRef.current?.pointerId === event.pointerId) spriteDragRef.current = null;
+          }}
         >
           <span
             className="stage-sprite-costume"
@@ -1606,6 +1657,7 @@ export default function NeurixEditor({
         mouseDown: () => mouseRef.current.down,
         getMouseX: () => mouseRef.current.x,
         getMouseY: () => mouseRef.current.y,
+        username: () => "",
         getTimerSeconds: () => (Date.now() - timerStartRef.current) / 1000,
         getX: () => spritesRef.current.find((item) => item.id === spriteId)?.x ?? 0,
         getY: () => spritesRef.current.find((item) => item.id === spriteId)?.y ?? 0,
@@ -1667,6 +1719,19 @@ export default function NeurixEditor({
           const sizeB = clamp(clone.size, 1, 1000) / 100;
           return Math.abs(sprite.x - clone.x) <= (25 * sizeA + 25 * sizeB) && Math.abs(sprite.y - clone.y) <= (25 * sizeA + 25 * sizeB);
         },
+        touchingColor: (color: string) => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite || !sprite.visible) return false;
+          const backdrop = stageStateRef.current.background ?? "#f5f5f7";
+          return colorDistance(backdrop, color) <= 36;
+        },
+        colorTouchingColor: (color: string, touching: string) => {
+          const sprite = spritesRef.current.find((item) => item.id === spriteId);
+          if (!sprite || !sprite.visible) return false;
+          const spriteMatches = colorDistance(sprite.tone, color) <= 48;
+          const backdropMatches = colorDistance(stageStateRef.current.background ?? "#f5f5f7", touching) <= 36;
+          return spriteMatches && backdropMatches;
+        },
         distanceToSprite: (name: string) => {
           const sprite = spritesRef.current.find((item) => item.id === spriteId);
           if (!sprite) return 0;
@@ -1682,6 +1747,32 @@ export default function NeurixEditor({
         getSpriteY: (name: string) => {
           const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
           return other?.y ?? 0;
+        },
+        getSpriteDirection: (name: string) => {
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
+          return other?.direction ?? 90;
+        },
+        getSpriteSize: (name: string) => {
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
+          return other?.size ?? 100;
+        },
+        getSpriteCostumeName: (name: string) => {
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
+          if (!other) return "";
+          const costumes = other.costumes && other.costumes.length > 0 ? other.costumes : [defaultCostume(other.tone)];
+          const costume = costumes.find((c) => c.id === other.currentCostumeId) ?? costumes[0];
+          return costume?.name ?? "";
+        },
+        getSpriteCostumeNumber: (name: string) => {
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
+          if (!other) return 0;
+          const costumes = other.costumes && other.costumes.length > 0 ? other.costumes : [defaultCostume(other.tone)];
+          const index = Math.max(0, costumes.findIndex((c) => c.id === other.currentCostumeId));
+          return index + 1;
+        },
+        getSpriteVolume: (name: string) => {
+          const other = spritesRef.current.find((item) => item.name === name && !item.isClone);
+          return other?.volume ?? 100;
         },
         move: (steps) => {
           setSprites((curr) =>
@@ -1913,6 +2004,14 @@ export default function NeurixEditor({
         },
         resetTimer: () => {
           timerStartRef.current = Date.now();
+        },
+        askAndWait: async (question) => {
+          const response = window.prompt(question) ?? "";
+          answerRef.current = response;
+        },
+        getAnswer: () => answerRef.current,
+        setDragMode: (mode) => {
+          updateSprite(spriteId, { draggable: mode === "draggable" });
         },
         setVariableVisible: (name, visible) => {
           setVariableWatchers((curr) => curr.map((watcher) => watcher.name === name ? { ...watcher, visible } : watcher));

@@ -10,12 +10,20 @@ export type ScriptRuntime = {
   touchingEdge: () => boolean;
   touchingMousePointer: () => boolean;
   touchingSprite: (name: string) => boolean;
+  touchingColor: (color: string) => boolean;
+  colorTouchingColor: (color: string, touching: string) => boolean;
   distanceToSprite: (name: string) => number;
   getSpriteX: (name: string) => number;
   getSpriteY: (name: string) => number;
+  getSpriteDirection: (name: string) => number;
+  getSpriteSize: (name: string) => number;
+  getSpriteCostumeName: (name: string) => string;
+  getSpriteCostumeNumber: (name: string) => number;
+  getSpriteVolume: (name: string) => number;
   mouseDown: () => boolean;
   getMouseX: () => number;
   getMouseY: () => number;
+  username?: () => string;
   getTimerSeconds: () => number;
   getX: () => number;
   getY: () => number;
@@ -50,6 +58,9 @@ export type ScriptRuntime = {
   setGraphicEffect: (effect: GraphicEffect, value: number) => void;
   clearGraphicEffects: () => void;
   resetTimer: () => void;
+  askAndWait: (question: string) => Promise<void>;
+  getAnswer: () => string;
+  setDragMode: (mode: "draggable" | "not draggable") => void;
   setVariableVisible: (name: string, visible: boolean) => void;
   createClone: () => void;
   deleteClone: () => void;
@@ -131,12 +142,30 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
       if (value.property === "currentSecond") return new Date().getSeconds();
       if (value.property === "currentMinute") return new Date().getMinutes();
       if (value.property === "currentHour") return new Date().getHours();
+      if (value.property === "daysSince2000") return Math.floor((Date.now() - Date.UTC(2000, 0, 1)) / 86400000);
+      if (value.property === "username") return runtime.username?.() ?? "";
       if (value.property === "lastKey") return runtime.lastKey();
       return Math.round(Math.hypot(runtime.getX(), runtime.getY()));
     case "distanceToObject":
       if (value.object === "mouse-pointer") return Math.round(Math.hypot(runtime.getMouseX() - runtime.getX(), runtime.getMouseY() - runtime.getY()));
       if (value.object === "center" || value.object === "edge") return Math.round(Math.hypot(runtime.getX(), runtime.getY()));
       return Math.round(runtime.distanceToSprite(value.object));
+    case "propertyOf":
+      if (value.object === "Stage") {
+        if (value.property === "volume") return runtime.getVolume?.() ?? 100;
+        if (value.property === "costumeName") return runtime.getBackdropName();
+        if (value.property === "costumeNumber") return runtime.getBackdropNumber();
+        return 0;
+      }
+      if (value.property === "x") return runtime.getSpriteX(value.object);
+      if (value.property === "y") return runtime.getSpriteY(value.object);
+      if (value.property === "direction") return runtime.getSpriteDirection(value.object);
+      if (value.property === "size") return runtime.getSpriteSize(value.object);
+      if (value.property === "costumeName") return runtime.getSpriteCostumeName(value.object);
+      if (value.property === "costumeNumber") return runtime.getSpriteCostumeNumber(value.object);
+      return runtime.getSpriteVolume(value.object);
+    case "answer":
+      return runtime.getAnswer();
     case "random": {
       const from = toNumber(valueOf(value.from, runtime, variables));
       const to = toNumber(valueOf(value.to, runtime, variables));
@@ -199,6 +228,10 @@ function isConditionTrue(condition: ScriptCondition, runtime: ScriptRuntime, var
       if (condition.object === "edge") return runtime.touchingEdge();
       if (condition.object === "mouse-pointer") return runtime.touchingMousePointer();
       return runtime.touchingSprite(condition.object);
+    case "touchingColor":
+      return runtime.touchingColor(condition.color);
+    case "colorTouchingColor":
+      return runtime.colorTouchingColor(condition.color, condition.touching);
     case "mouseDown":
       return runtime.mouseDown();
     case "anyKeyPressed":
@@ -382,6 +415,12 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "resetTimer":
       runtime.resetTimer();
+      break;
+    case "askAndWait":
+      await runtime.askAndWait(toText(valueOf(node.question, runtime, variables)));
+      break;
+    case "setDragMode":
+      runtime.setDragMode(node.mode);
       break;
     case "stop":
       return;

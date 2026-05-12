@@ -106,12 +106,22 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
       return { type: "sensing", property: "timer" };
     case "sensing_distance_to":
       return { type: "distanceToObject", object: String(block.getFieldValue("OBJ") ?? "center") };
+    case "sensing_of":
+      return {
+        type: "propertyOf",
+        property: String(block.getFieldValue("PROPERTY") ?? "x") as "x" | "y" | "direction" | "size" | "costumeNumber" | "costumeName" | "volume",
+        object: String(block.getFieldValue("OBJECT") ?? "Stage"),
+      };
     case "sensing_current_time": {
       const unit = String(block.getFieldValue("UNIT"));
       return { type: "sensing", property: unit === "MINUTE" ? "currentMinute" : unit === "HOUR" ? "currentHour" : "currentSecond" };
     }
     case "sensing_last_key":
       return { type: "sensing", property: "lastKey" };
+    case "sensing_days_since_2000":
+      return { type: "sensing", property: "daysSince2000" };
+    case "sensing_username":
+      return { type: "sensing", property: "username" };
     case "math_random_int":
       return {
         type: "random",
@@ -173,6 +183,8 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
       return { type: "listLength", list: String(block.getFieldValue("LIST") ?? "list") };
     case "sound_volume":
       return { type: "soundVolume" };
+    case "sensing_answer":
+      return { type: "answer" };
     default:
       return fallback;
   }
@@ -198,6 +210,14 @@ function parseCondition(block: Blockly.Block | null, bindings: ValueBindings = n
       return { type: "keyPressed", key: String(block.getFieldValue("KEY")) as KeyName };
     case "sensing_touching_object":
       return { type: "touchingObject", object: String(block.getFieldValue("OBJ") ?? "edge") };
+    case "sensing_touching_color":
+      return { type: "touchingColor", color: String(block.getFieldValue("COLOR") ?? "#52c3f0") };
+    case "sensing_color_touching_color":
+      return {
+        type: "colorTouchingColor",
+        color: String(block.getFieldValue("COLOR") ?? "#5b6d7c"),
+        touching: String(block.getFieldValue("TOUCHING") ?? "#d5e04a"),
+      };
     case "sensing_mouse_down":
       return { type: "mouseDown" };
     case "sensing_any_key_pressed":
@@ -410,6 +430,12 @@ program.push({ type: "ifOnEdgeBounce" });
         break;
       case "sensing_resettimer":
         program.push({ type: "resetTimer" });
+        break;
+      case "sensing_ask_and_wait":
+        program.push({ type: "askAndWait", question: getValueInput(block, "QUESTION", "What's your name?", bindings) });
+        break;
+      case "sensing_set_drag_mode":
+        program.push({ type: "setDragMode", mode: String(block.getFieldValue("MODE") ?? "draggable") === "not draggable" ? "not draggable" : "draggable" });
         break;
       case "control_stop": {
         const mode = String(block.getFieldValue("STOP") ?? "all");

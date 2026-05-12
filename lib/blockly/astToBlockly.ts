@@ -45,6 +45,15 @@ function createConditionBlock(workspace: Blockly.Workspace, condition: ScriptCon
       block = workspace.newBlock("sensing_touching_object");
       setField(block, "OBJ", condition.object);
       return init(block);
+    case "touchingColor":
+      block = workspace.newBlock("sensing_touching_color");
+      setField(block, "COLOR", condition.color);
+      return init(block);
+    case "colorTouchingColor":
+      block = workspace.newBlock("sensing_color_touching_color");
+      setField(block, "COLOR", condition.color);
+      setField(block, "TOUCHING", condition.touching);
+      return init(block);
     case "mouseDown":
       return init(workspace.newBlock("sensing_mouse_down"));
     case "anyKeyPressed":
@@ -252,6 +261,14 @@ case "ifOnEdgeBounce":
     case "setVolume":
       block = workspace.newBlock("sound_set_volume");
       setField(block, "VOLUME", primitive(node.volume, 100));
+      return init(block);
+    case "askAndWait":
+      block = workspace.newBlock("sensing_ask_and_wait");
+      setField(block, "QUESTION", primitive(node.question, "What's your name?"));
+      return init(block);
+    case "setDragMode":
+      block = workspace.newBlock("sensing_set_drag_mode");
+      setField(block, "MODE", node.mode);
       return init(block);
     case "setVariable":
     case "changeVariable":

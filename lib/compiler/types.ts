@@ -11,7 +11,8 @@ export type ScriptValue =
   | { type: "spriteProperty"; property: "x" | "y" | "direction" | "size" }
   | { type: "stageProperty"; property: "backdropName" | "backdropNumber" }
   | { type: "costumeProperty"; property: "costumeName" | "costumeNumber" }
-  | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "lastKey" }
+  | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "lastKey" | "daysSince2000" | "username" }
+  | { type: "propertyOf"; property: "x" | "y" | "direction" | "size" | "costumeNumber" | "costumeName" | "volume"; object: string }
   | { type: "distanceToObject"; object: string }
   | { type: "random"; from: ScriptValue; to: ScriptValue }
   | { type: "arithmetic"; operator: "+" | "-" | "*" | "/" | "%" | "^"; left: ScriptValue; right: ScriptValue }
@@ -23,11 +24,14 @@ export type ScriptValue =
   | { type: "listItem"; list: string; index: ScriptValue }
   | { type: "listIndex"; list: string; item: ScriptValue }
   | { type: "listLength"; list: string }
-  | { type: "soundVolume" };
+  | { type: "soundVolume" }
+  | { type: "answer" };
 
 export type ScriptCondition =
   | { type: "keyPressed"; key: KeyName }
   | { type: "touchingObject"; object: string }
+  | { type: "touchingColor"; color: string }
+  | { type: "colorTouchingColor"; color: string; touching: string }
   | { type: "mouseDown" }
   | { type: "anyKeyPressed" }
   | { type: "boolean"; value: boolean }
@@ -87,6 +91,8 @@ export type ScriptNode =
   | { type: "showVariable"; name: string }
   | { type: "hideVariable"; name: string }
   | { type: "resetTimer" }
+  | { type: "askAndWait"; question: ScriptValue }
+  | { type: "setDragMode"; mode: "draggable" | "not draggable" }
   | { type: "stop"; mode: "all" | "thisScript" }
   | { type: "setVariable"; name: string; value: ScriptValue }
   | { type: "changeVariable"; name: string; amount: ScriptValue }

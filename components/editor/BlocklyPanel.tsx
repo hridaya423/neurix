@@ -28,7 +28,7 @@ type BlocklyPanelProps = {
   visibleWatcherNames?: string[];
   visibleListWatcherNames?: string[];
   workspaceState: string | null;
-  onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms) => void;
+  onWorkspaceChange: (spriteId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms, keyPressPrograms: ScriptEventPrograms, spriteClickedProgram: ScriptProgram, stageClickedProgram: ScriptProgram) => void;
   onVariableCreate?: (name: string) => void;
   onCloudVariableCreate?: (name: string) => void;
   onVariableDelete?: (name: string) => void;
@@ -149,6 +149,28 @@ const CUSTOM_BLOCKS = [
     type: "event_when_backdrop",
     message0: "when backdrop switches to %1",
     args0: [{ type: "field_dropdown", name: "BACKDROP", options: [["Backdrop 1", "backdrop-1"]] }],
+    nextStatement: null,
+    style: "event_blocks",
+    hat: "cap",
+  },
+  {
+    type: "event_when_key",
+    message0: "when %1 key pressed",
+    args0: [{ type: "field_dropdown", name: "KEY", options: KEY_OPTIONS }],
+    nextStatement: null,
+    style: "event_blocks",
+    hat: "cap",
+  },
+  {
+    type: "event_when_sprite_clicked",
+    message0: "when this sprite clicked",
+    nextStatement: null,
+    style: "event_blocks",
+    hat: "cap",
+  },
+  {
+    type: "event_when_stage_clicked",
+    message0: "when stage clicked",
     nextStatement: null,
     style: "event_blocks",
     hat: "cap",
@@ -721,10 +743,11 @@ const CUSTOM_BLOCKS = [
   { type: "sensing_last_key", message0: "last key", output: "String", style: "sensing_blocks" },
   { type: "sensing_current_time",
     message0: "current %1",
-    args0: [{ type: "field_dropdown", name: "UNIT", options: [["second", "SECOND"], ["minute", "MINUTE"], ["hour", "HOUR"]] }],
+    args0: [{ type: "field_dropdown", name: "UNIT", options: [["year", "YEAR"], ["month", "MONTH"], ["date", "DATE"], ["day of week", "DAYOFWEEK"], ["hour", "HOUR"], ["minute", "MINUTE"], ["second", "SECOND"]] }],
     output: "Number",
     style: "sensing_blocks",
   },
+  { type: "sensing_loudness", message0: "loudness", output: "Number", style: "sensing_blocks" },
   { type: "sensing_resettimer", message0: "reset timer", previousStatement: null, nextStatement: null, style: "sensing_blocks" },
   { type: "sensing_set_drag_mode", message0: "set drag mode %1", args0: [{ type: "field_dropdown", name: "MODE", options: [["draggable", "draggable"], ["not draggable", "not draggable"]] }], previousStatement: null, nextStatement: null, style: "sensing_blocks" },
   {
@@ -999,6 +1022,8 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       categorystyle: "event_category",
       contents: [
         { kind: "block", type: "event_start" },
+        { kind: "block", type: "event_when_key" },
+        { kind: "block", type: "event_when_sprite_clicked" },
         { kind: "block", type: "event_when_broadcast" },
         { kind: "block", type: "event_broadcast" },
         { kind: "block", type: "event_broadcast_wait" },
@@ -1110,6 +1135,7 @@ const TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "sensing_timer" },
         { kind: "block", type: "sensing_distance_to" },
         { kind: "block", type: "sensing_last_key" },
+        { kind: "block", type: "sensing_loudness" },
         { kind: "block", type: "sensing_current_time" },
         { kind: "block", type: "sensing_resettimer" },
         { kind: "block", type: "sensing_set_drag_mode" },
@@ -1188,6 +1214,8 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
       categorystyle: "event_category",
       contents: [
         { kind: "block", type: "event_start" },
+        { kind: "block", type: "event_when_key" },
+        { kind: "block", type: "event_when_stage_clicked" },
         { kind: "block", type: "event_when_broadcast" },
         { kind: "block", type: "event_broadcast" },
         { kind: "block", type: "event_broadcast_wait" },
@@ -1250,6 +1278,7 @@ const STAGE_TOOLBOX: Blockly.utils.toolbox.ToolboxInfo = {
         { kind: "block", type: "sensing_mouse_y" },
         { kind: "block", type: "sensing_timer" },
         { kind: "block", type: "sensing_last_key" },
+        { kind: "block", type: "sensing_loudness" },
         { kind: "block", type: "sensing_current_time" },
         { kind: "block", type: "sensing_resettimer" },
         { kind: "block", type: "sensing_set_drag_mode" },
@@ -2990,6 +3019,9 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       programs.cloneStart,
       programs.broadcasts,
       programs.backdrops,
+      programs.keyPresses,
+      programs.spriteClicked,
+      programs.stageClicked,
     );
   }, []);
 
@@ -3354,6 +3386,9 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
         programs.cloneStart,
         programs.broadcasts,
         programs.backdrops,
+        programs.keyPresses,
+        programs.spriteClicked,
+        programs.stageClicked,
       );
     };
 
@@ -3457,6 +3492,9 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
         programs.cloneStart,
         programs.broadcasts,
         programs.backdrops,
+        programs.keyPresses,
+        programs.spriteClicked,
+        programs.stageClicked,
       );
       setAiMessage(payload.explanation ?? "Inserted generated blocks.");
     } catch (error) {

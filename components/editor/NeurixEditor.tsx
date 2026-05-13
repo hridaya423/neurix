@@ -112,6 +112,9 @@ export type SavedSprite = {
   cloneProgram?: ScriptProgram;
   broadcastPrograms?: ScriptEventPrograms;
   backdropPrograms?: ScriptEventPrograms;
+  keyPressPrograms?: ScriptEventPrograms;
+  spriteClickedProgram?: ScriptProgram;
+  stageClickedProgram?: ScriptProgram;
   variables?: RuntimeValues;
   lists?: Record<string, RuntimeValue[]>;
   costumes?: SpriteCostume[];
@@ -143,6 +146,8 @@ export type ProjectDocument = {
     program?: ScriptProgram;
     broadcastPrograms?: ScriptEventPrograms;
     backdropPrograms?: ScriptEventPrograms;
+    keyPressPrograms?: ScriptEventPrograms;
+    stageClickedProgram?: ScriptProgram;
     sounds?: ProjectSound[];
     volume?: number;
   };
@@ -314,6 +319,9 @@ function normalizeSprite(sprite: SavedSprite, index = 0): SavedSprite {
     cloneProgram: normalizeProgram(sprite.cloneProgram),
     broadcastPrograms: normalizeProgramMap(sprite.broadcastPrograms),
     backdropPrograms: normalizeProgramMap(sprite.backdropPrograms),
+    keyPressPrograms: normalizeProgramMap(sprite.keyPressPrograms),
+    spriteClickedProgram: normalizeProgram(sprite.spriteClickedProgram),
+    stageClickedProgram: normalizeProgram(sprite.stageClickedProgram),
     variables: normalizeRuntimeValues(sprite.variables),
     lists: normalizeLists(sprite.lists),
     costumes,
@@ -538,6 +546,8 @@ function normalizeStage(stage: ProjectDocument["stage"]): ProjectDocument["stage
     program: normalizeProgram(stage.program),
     broadcastPrograms: normalizeProgramMap(stage.broadcastPrograms),
     backdropPrograms: normalizeProgramMap(stage.backdropPrograms),
+    keyPressPrograms: normalizeProgramMap(stage.keyPressPrograms),
+    stageClickedProgram: normalizeProgram(stage.stageClickedProgram),
     sounds: normalizeSounds(stage.sounds),
     volume: typeof stage.volume === "number" ? clamp(stage.volume, 0, 100) : 100,
   };
@@ -764,6 +774,8 @@ export default function NeurixEditor({
       program: stageState.program ?? [],
       broadcastPrograms: stageState.broadcastPrograms ?? {},
       backdropPrograms: stageState.backdropPrograms ?? {},
+      keyPressPrograms: stageState.keyPressPrograms ?? {},
+      stageClickedProgram: stageState.stageClickedProgram ?? [],
       sounds: stageState.sounds ?? [],
       volume: stageState.volume ?? 100,
     },
@@ -782,6 +794,9 @@ export default function NeurixEditor({
       cloneProgram: sprite.cloneProgram ?? [],
       broadcastPrograms: sprite.broadcastPrograms ?? {},
       backdropPrograms: sprite.backdropPrograms ?? {},
+      keyPressPrograms: sprite.keyPressPrograms ?? {},
+      spriteClickedProgram: sprite.spriteClickedProgram ?? [],
+      stageClickedProgram: sprite.stageClickedProgram ?? [],
       variables: sprite.variables ?? {},
       lists: sprite.lists ?? {},
       costumes: sprite.costumes ?? [defaultCostume(sprite.tone)],
@@ -789,7 +804,7 @@ export default function NeurixEditor({
       sounds: sprite.sounds ?? [],
       volume: sprite.volume ?? 100,
     })),
-  }), [cloudVariables, currentBackdrop, listWatchers, projectLists, projectVariables, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.program, stageState.sounds, stageState.volume, stageState.workspaceState, variableWatchers]);
+  }), [cloudVariables, currentBackdrop, listWatchers, projectLists, projectVariables, sprites, stageState.backdropPrograms, stageState.backdrops, stageState.broadcastPrograms, stageState.keyPressPrograms, stageState.program, stageState.sounds, stageState.stageClickedProgram, stageState.volume, stageState.workspaceState, variableWatchers]);
 
   useEffect(() => {
     cloudVariablesRef.current = cloudVariables;
@@ -833,6 +848,30 @@ export default function NeurixEditor({
     const handleKeyDown = (event: KeyboardEvent) => {
       pressedKeysRef.current.add(event.key);
       lastKeyRef.current = event.key;
+
+      if (event.repeat) return;
+
+      const runId = runIdRef.current;
+      const triggerForTarget = (spriteId: string, keyPrograms: ScriptEventPrograms | undefined) => {
+        if (!keyPrograms) return;
+        const candidates = [
+          event.key,
+          event.key.toLowerCase(),
+          event.key === " " ? "space" : event.key,
+        ];
+        const matched = new Set<ScriptNode[]>();
+        for (const candidate of candidates) {
+          const stacks = keyPrograms[candidate];
+          if (!stacks) continue;
+          for (const stack of stacks) matched.add(stack);
+        }
+        if (matched.size > 0) {
+          void runProgramRef.current?.(spriteId, [...matched], runId);
+        }
+      };
+
+      triggerForTarget("stage", stageStateRef.current.keyPressPrograms);
+      for (const sprite of spritesRef.current) triggerForTarget(sprite.id, sprite.keyPressPrograms);
     };
     const handleKeyUp = (event: KeyboardEvent) => {
       pressedKeysRef.current.delete(event.key);
@@ -886,15 +925,17 @@ export default function NeurixEditor({
   };
 
   const handleWorkspaceChange = useCallback(
-    (targetId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms) => {
+    (targetId: string, workspaceState: string, program: ScriptProgram, cloneProgram: ScriptProgram, broadcastPrograms: ScriptEventPrograms, backdropPrograms: ScriptEventPrograms, keyPressPrograms: ScriptEventPrograms, spriteClickedProgram: ScriptProgram, stageClickedProgram: ScriptProgram) => {
       if (targetId === "stage") {
-        setStageState((curr) => ({ ...curr, workspaceState, program, broadcastPrograms, backdropPrograms }));
+        setStageState((curr) => ({ ...curr, workspaceState, program, broadcastPrograms, backdropPrograms, keyPressPrograms, stageClickedProgram }));
         return;
       }
 
       setSprites((curr) =>
         curr.map((sprite) =>
-          sprite.id === targetId ? { ...sprite, workspaceState, program, cloneProgram, broadcastPrograms, backdropPrograms } : sprite,
+          sprite.id === targetId
+            ? { ...sprite, workspaceState, program, cloneProgram, broadcastPrograms, backdropPrograms, keyPressPrograms, spriteClickedProgram, stageClickedProgram }
+            : sprite,
         ),
       );
     },
@@ -1128,6 +1169,20 @@ export default function NeurixEditor({
         setWatcherMenu(null);
         updateMousePosition(event);
         mouseRef.current.down = true;
+        if (event.button !== 0) return;
+        const runId = runIdRef.current;
+        const jobs: Promise<void>[] = [];
+        const stageProgram = stageStateRef.current.stageClickedProgram ?? [];
+        if (stageProgram.length > 0) {
+          jobs.push(runProgramRef.current?.("stage", stageProgram, runId) ?? Promise.resolve());
+        }
+        for (const sprite of spritesRef.current) {
+          const spriteProgram = sprite.stageClickedProgram ?? [];
+          if (spriteProgram.length > 0) {
+            jobs.push(runProgramRef.current?.(sprite.id, spriteProgram, runId) ?? Promise.resolve());
+          }
+        }
+        if (jobs.length > 0) void Promise.all(jobs);
       }}
       onPointerUp={() => {
         mouseRef.current.down = false;
@@ -1149,8 +1204,12 @@ export default function NeurixEditor({
           className="stage-sprite"
           style={getStageStyle(sprite, graphicEffectsRef.current[sprite.id])}
           onPointerDown={(event) => {
-            if (!sprite.draggable) return;
             event.stopPropagation();
+            if (event.button !== 0) return;
+            const runId = runIdRef.current;
+            const clickedProgram = sprite.spriteClickedProgram ?? [];
+            if (clickedProgram.length > 0) void runProgramRef.current?.(sprite.id, clickedProgram, runId);
+            if (!sprite.draggable) return;
             updateMousePosition(event);
             spriteDragRef.current = { id: sprite.id, pointerId: event.pointerId };
           }}
@@ -1658,6 +1717,7 @@ export default function NeurixEditor({
         getMouseX: () => mouseRef.current.x,
         getMouseY: () => mouseRef.current.y,
         username: () => "",
+        loudness: () => 0,
         getTimerSeconds: () => (Date.now() - timerStartRef.current) / 1000,
         getX: () => spritesRef.current.find((item) => item.id === spriteId)?.x ?? 0,
         getY: () => spritesRef.current.find((item) => item.id === spriteId)?.y ?? 0,

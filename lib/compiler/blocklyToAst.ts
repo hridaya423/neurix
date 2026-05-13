@@ -114,10 +114,18 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
       };
     case "sensing_current_time": {
       const unit = String(block.getFieldValue("UNIT"));
-      return { type: "sensing", property: unit === "MINUTE" ? "currentMinute" : unit === "HOUR" ? "currentHour" : "currentSecond" };
+      if (unit === "YEAR") return { type: "sensing", property: "currentYear" };
+      if (unit === "MONTH") return { type: "sensing", property: "currentMonth" };
+      if (unit === "DATE") return { type: "sensing", property: "currentDate" };
+      if (unit === "DAYOFWEEK") return { type: "sensing", property: "currentDayOfWeek" };
+      if (unit === "MINUTE") return { type: "sensing", property: "currentMinute" };
+      if (unit === "HOUR") return { type: "sensing", property: "currentHour" };
+      return { type: "sensing", property: "currentSecond" };
     }
     case "sensing_last_key":
       return { type: "sensing", property: "lastKey" };
+    case "sensing_loudness":
+      return { type: "sensing", property: "loudness" };
     case "sensing_days_since_2000":
       return { type: "sensing", property: "daysSince2000" };
     case "sensing_username":
@@ -664,7 +672,7 @@ function collectCustomDefinitions(workspace: Blockly.WorkspaceSvg): CustomDefini
 export function blockStackToAst(workspace: Blockly.WorkspaceSvg, block: Blockly.Block): ScriptNode[] {
   const definitions = collectCustomDefinitions(workspace);
 
-  if (block.type === "event_start" || block.type === "event_clone_start" || block.type === "event_when_broadcast" || block.type === "event_when_backdrop" || isCustomDefinitionBlock(block)) {
+  if (block.type === "event_start" || block.type === "event_clone_start" || block.type === "event_when_broadcast" || block.type === "event_when_backdrop" || block.type === "event_when_key" || block.type === "event_when_sprite_clicked" || block.type === "event_when_stage_clicked" || isCustomDefinitionBlock(block)) {
     return parseStack(block.type === "procedures_defnoreturn" ? block.getInputTargetBlock("STACK") : block.getNextBlock(), definitions);
   }
 
@@ -687,6 +695,9 @@ export function blocklyToPrograms(workspace: Blockly.WorkspaceSvg) {
   const cloneStartBlocks = topBlocks.filter((block) => block.type === "event_clone_start");
   const broadcasts: ScriptEventPrograms = {};
   const backdrops: ScriptEventPrograms = {};
+  const keyPresses: ScriptEventPrograms = {};
+  const spriteClicked: ScriptProgram = [];
+  const stageClicked: ScriptProgram = [];
 
   const addEventStack = (target: ScriptEventPrograms, key: string, block: Blockly.Block) => {
     const stack = parseStack(block.getNextBlock(), definitions);
@@ -702,6 +713,17 @@ export function blocklyToPrograms(workspace: Blockly.WorkspaceSvg) {
     if (block.type === "event_when_backdrop") {
       addEventStack(backdrops, String(block.getFieldValue("BACKDROP") ?? "backdrop-1"), block);
     }
+    if (block.type === "event_when_key") {
+      addEventStack(keyPresses, String(block.getFieldValue("KEY") ?? "space"), block);
+    }
+    if (block.type === "event_when_sprite_clicked") {
+      const stack = parseStack(block.getNextBlock(), definitions);
+      if (stack.length > 0) spriteClicked.push(stack);
+    }
+    if (block.type === "event_when_stage_clicked") {
+      const stack = parseStack(block.getNextBlock(), definitions);
+      if (stack.length > 0) stageClicked.push(stack);
+    }
   }
 
   return {
@@ -709,5 +731,8 @@ export function blocklyToPrograms(workspace: Blockly.WorkspaceSvg) {
     cloneStart: cloneStartBlocks.map((block) => parseStack(block.getNextBlock(), definitions)).filter((stack) => stack.length > 0),
     broadcasts,
     backdrops,
-  } satisfies { start: ScriptProgram; cloneStart: ScriptProgram; broadcasts: ScriptEventPrograms; backdrops: ScriptEventPrograms };
+    keyPresses,
+    spriteClicked,
+    stageClicked,
+  } satisfies { start: ScriptProgram; cloneStart: ScriptProgram; broadcasts: ScriptEventPrograms; backdrops: ScriptEventPrograms; keyPresses: ScriptEventPrograms; spriteClicked: ScriptProgram; stageClicked: ScriptProgram };
 }

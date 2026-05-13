@@ -32,8 +32,13 @@ function valueToJs(value: ScriptValue): string {
       if (value.property === "currentSecond") return "new Date().getSeconds()";
       if (value.property === "currentMinute") return "new Date().getMinutes()";
       if (value.property === "currentHour") return "new Date().getHours()";
+      if (value.property === "currentDate") return "new Date().getDate()";
+      if (value.property === "currentMonth") return "new Date().getMonth() + 1";
+      if (value.property === "currentYear") return "new Date().getFullYear()";
+      if (value.property === "currentDayOfWeek") return "new Date().getDay() + 1";
       if (value.property === "daysSince2000") return "Math.floor((Date.now() - Date.UTC(2000, 0, 1)) / 86400000)";
       if (value.property === "username") return "api.username?.() ?? \"\"";
+      if (value.property === "loudness") return "api.loudness?.() ?? 0";
       if (value.property === "lastKey") return "api.lastKey()";
       return "0";
     case "distanceToObject":

@@ -362,7 +362,7 @@ function createStatementStack(workspace: Blockly.Workspace, nodes: ScriptNode[])
   return first;
 }
 
-export function programsToWorkspaceState(program: ScriptProgram, cloneProgram: ScriptProgram = [], broadcastPrograms: ScriptEventPrograms = {}, backdropPrograms: ScriptEventPrograms = {}) {
+export function programsToWorkspaceState(program: ScriptProgram, cloneProgram: ScriptProgram = [], broadcastPrograms: ScriptEventPrograms = {}, backdropPrograms: ScriptEventPrograms = {}, keyPressPrograms: ScriptEventPrograms = {}, spriteClickedProgram: ScriptProgram = [], stageClickedProgram: ScriptProgram = []) {
   const workspace = new Blockly.Workspace();
 
   const stacks: Array<{ hat: Blockly.Block; body: ScriptNode[] }> = [];
@@ -385,6 +385,19 @@ export function programsToWorkspaceState(program: ScriptProgram, cloneProgram: S
       hat.setFieldValue(backdropId, "BACKDROP");
       stacks.push({ hat, body: stack });
     }
+  }
+  for (const [key, stacksForKey] of Object.entries(keyPressPrograms)) {
+    for (const stack of stacksForKey) {
+      const hat = workspace.newBlock("event_when_key");
+      hat.setFieldValue(key, "KEY");
+      stacks.push({ hat, body: stack });
+    }
+  }
+  for (const stack of spriteClickedProgram) {
+    stacks.push({ hat: workspace.newBlock("event_when_sprite_clicked"), body: stack });
+  }
+  for (const stack of stageClickedProgram) {
+    stacks.push({ hat: workspace.newBlock("event_when_stage_clicked"), body: stack });
   }
 
   stacks.forEach(({ hat, body }, index) => {

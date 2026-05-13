@@ -11,7 +11,7 @@ export type ScriptValue =
   | { type: "spriteProperty"; property: "x" | "y" | "direction" | "size" }
   | { type: "stageProperty"; property: "backdropName" | "backdropNumber" }
   | { type: "costumeProperty"; property: "costumeName" | "costumeNumber" }
-  | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "lastKey" | "daysSince2000" | "username" }
+  | { type: "sensing"; property: "mouseX" | "mouseY" | "timer" | "currentSecond" | "currentMinute" | "currentHour" | "currentDate" | "currentMonth" | "currentYear" | "currentDayOfWeek" | "lastKey" | "daysSince2000" | "username" | "loudness" }
   | { type: "propertyOf"; property: "x" | "y" | "direction" | "size" | "costumeNumber" | "costumeName" | "volume"; object: string }
   | { type: "distanceToObject"; object: string }
   | { type: "random"; from: ScriptValue; to: ScriptValue }

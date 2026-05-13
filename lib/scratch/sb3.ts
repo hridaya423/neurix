@@ -186,6 +186,7 @@ const supportedReporterOpcodes = new Set<string>([
   "sensing_current",
   "sensing_dayssince2000",
   "sensing_username",
+  "sensing_loudness",
   "sound_volume",
   "sensing_distanceto",
   "sensing_touchingobjectmenu",
@@ -714,13 +715,27 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
     }
     case "sensing_current": {
       const unit = getFieldValue(block, "CURRENTMENU").toLowerCase();
-      const property = unit === "hour" ? "currentHour" : unit === "minute" ? "currentMinute" : "currentSecond";
+      const property = unit === "year"
+        ? "currentYear"
+        : unit === "month"
+          ? "currentMonth"
+          : unit === "date"
+            ? "currentDate"
+            : unit === "dayofweek"
+              ? "currentDayOfWeek"
+              : unit === "hour"
+                ? "currentHour"
+                : unit === "minute"
+                  ? "currentMinute"
+                  : "currentSecond";
       return { type: "sensing", property };
     }
     case "sensing_dayssince2000":
       return { type: "sensing", property: "daysSince2000" };
     case "sensing_username":
       return { type: "sensing", property: "username" };
+    case "sensing_loudness":
+      return { type: "sensing", property: "loudness" };
     case "sound_volume":
       return { type: "soundVolume" };
     case "sensing_distanceto": {
@@ -1010,6 +1025,9 @@ function parseScratchTargetPrograms(target: ScratchTargetWithBlocks) {
   const cloneStart: ScriptProgram = [];
   const broadcasts: ScriptEventPrograms = {};
   const backdrops: ScriptEventPrograms = {};
+  const keyPresses: ScriptEventPrograms = {};
+  const spriteClicked: ScriptProgram = [];
+  const stageClicked: ScriptProgram = [];
 
   for (const block of Object.values(target.blocks ?? {})) {
     if (!block?.topLevel) continue;
@@ -1034,10 +1052,20 @@ function parseScratchTargetPrograms(target: ScratchTargetWithBlocks) {
       continue;
     }
     if (block.opcode === "event_whenkeypressed") {
-      start.push(parseStack(block.next, target.blocks));
+      const key = (getFieldValue(block, "KEY_OPTION") || "space").toLowerCase();
+      if (!keyPresses[key]) keyPresses[key] = [];
+      keyPresses[key].push(parseStack(block.next, target.blocks));
       continue;
     }
-    if (block.opcode === "event_whenstageclicked" || block.opcode === "event_whenthisspriteclicked" || block.opcode === "event_whengreaterthan") {
+    if (block.opcode === "event_whenstageclicked") {
+      stageClicked.push(parseStack(block.next, target.blocks));
+      continue;
+    }
+    if (block.opcode === "event_whenthisspriteclicked") {
+      spriteClicked.push(parseStack(block.next, target.blocks));
+      continue;
+    }
+    if (block.opcode === "event_whengreaterthan") {
       start.push(parseStack(block.next, target.blocks));
       continue;
     }
@@ -1047,7 +1075,7 @@ function parseScratchTargetPrograms(target: ScratchTargetWithBlocks) {
     }
   }
 
-  return { start, cloneStart, broadcasts, backdrops };
+  return { start, cloneStart, broadcasts, backdrops, keyPresses, spriteClicked, stageClicked };
 }
 
 
@@ -1125,11 +1153,14 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
       visible: target.visible !== false,
       sounds: await parseScratchSounds(target, zip),
       volume: typeof target.volume === "number" ? target.volume : 100,
-      workspaceState: programsToWorkspaceState(spritePrograms.start, spritePrograms.cloneStart, spritePrograms.broadcasts, spritePrograms.backdrops),
+      workspaceState: programsToWorkspaceState(spritePrograms.start, spritePrograms.cloneStart, spritePrograms.broadcasts, spritePrograms.backdrops, spritePrograms.keyPresses, spritePrograms.spriteClicked, spritePrograms.stageClicked),
       program: spritePrograms.start,
       cloneProgram: spritePrograms.cloneStart,
       broadcastPrograms: spritePrograms.broadcasts,
       backdropPrograms: spritePrograms.backdrops,
+      keyPressPrograms: spritePrograms.keyPresses,
+      spriteClickedProgram: spritePrograms.spriteClicked,
+      stageClickedProgram: spritePrograms.stageClicked,
       variables: parseScratchVariables(target, target.name),
       lists: parseScratchLists(target, target.name),
       costumes,
@@ -1152,10 +1183,12 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
       background: "#f5f5f7",
       backdrops: stageCostumes,
       currentBackdropId: stageCostumes[Math.max(0, stageTarget.currentCostume ?? 0)]?.id ?? stageCostumes[0]?.id,
-      workspaceState: programsToWorkspaceState(stagePrograms.start, stagePrograms.cloneStart, stagePrograms.broadcasts, stagePrograms.backdrops),
+      workspaceState: programsToWorkspaceState(stagePrograms.start, stagePrograms.cloneStart, stagePrograms.broadcasts, stagePrograms.backdrops, stagePrograms.keyPresses, stagePrograms.spriteClicked, stagePrograms.stageClicked),
       program: stagePrograms.start,
       broadcastPrograms: stagePrograms.broadcasts,
       backdropPrograms: stagePrograms.backdrops,
+      keyPressPrograms: stagePrograms.keyPresses,
+      stageClickedProgram: stagePrograms.stageClicked,
       sounds: stageSounds,
       volume: typeof stageTarget.volume === "number" ? stageTarget.volume : 100,
     },

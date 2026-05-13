@@ -24,6 +24,7 @@ export type ScriptRuntime = {
   getMouseX: () => number;
   getMouseY: () => number;
   username?: () => string;
+  loudness?: () => number;
   getTimerSeconds: () => number;
   getX: () => number;
   getY: () => number;
@@ -142,8 +143,13 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
       if (value.property === "currentSecond") return new Date().getSeconds();
       if (value.property === "currentMinute") return new Date().getMinutes();
       if (value.property === "currentHour") return new Date().getHours();
+      if (value.property === "currentDate") return new Date().getDate();
+      if (value.property === "currentMonth") return new Date().getMonth() + 1;
+      if (value.property === "currentYear") return new Date().getFullYear();
+      if (value.property === "currentDayOfWeek") return new Date().getDay() + 1;
       if (value.property === "daysSince2000") return Math.floor((Date.now() - Date.UTC(2000, 0, 1)) / 86400000);
       if (value.property === "username") return runtime.username?.() ?? "";
+      if (value.property === "loudness") return runtime.loudness?.() ?? 0;
       if (value.property === "lastKey") return runtime.lastKey();
       return Math.round(Math.hypot(runtime.getX(), runtime.getY()));
     case "distanceToObject":

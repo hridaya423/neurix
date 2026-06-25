@@ -50,7 +50,7 @@ type ScratchTarget = {
 
 type ScratchProjectJson = {
   targets: ScratchTarget[];
-  monitors: unknown[];
+  monitors: ScratchMonitor[];
   extensions: string[];
   meta: {
     semver: string;
@@ -70,8 +70,24 @@ type ScratchBlock = {
   topLevel?: boolean;
 };
 
+type ScratchMonitor = {
+  id: string;
+  mode: "default" | "large" | "slider" | "list";
+  opcode: "data_variable" | "data_listcontents" | string;
+  params?: Record<string, string>;
+  spriteName?: string | null;
+  x?: number;
+  y?: number;
+  visible?: boolean;
+};
+
 type ScratchTargetWithBlocks = ScratchTarget & {
   blocks: Record<string, ScratchBlock>;
+};
+
+type ScratchAssetMaps = {
+  backdrops?: Record<string, string>;
+  costumes?: Record<string, string>;
 };
 
 const supportedStatementOpcodes = new Set<string>([
@@ -150,7 +166,6 @@ const supportedStatementOpcodes = new Set<string>([
   "sensing_askandwait",
   "sensing_setdragmode",
   "sensing_resettimer",
-  "procedures_definition",
   "procedures_callnoreturn",
 ]);
 
@@ -194,6 +209,12 @@ const supportedReporterOpcodes = new Set<string>([
   "sensing_keyoptions",
   "sensing_of_object_menu",
   "sound_sounds_menu",
+  "event_broadcast_menu",
+  "looks_costume",
+  "looks_backdrops",
+  "motion_goto_menu",
+  "motion_glideto_menu",
+  "motion_pointtowards_menu",
   "argument_reporter_string_number",
   "argument_reporter_boolean",
   "procedures_callreturn",
@@ -225,8 +246,6 @@ const supportedHatOpcodes = new Set<string>([
   "event_whenkeypressed",
   "event_whenstageclicked",
   "event_whenthisspriteclicked",
-  "event_whengreaterthan",
-  "procedures_definition",
 ]);
 
 
@@ -273,6 +292,219 @@ function splitSpriteScopedName(name: string) {
   const marker = name.indexOf(": ");
   if (marker < 0) return null;
   return { spriteName: name.slice(0, marker), localName: name.slice(marker + 2) };
+}
+
+function clampPercent(value: number, max: number) {
+  return Math.max(0, Math.min(max, value));
+}
+
+function watcherNameParts(name: string) {
+  const split = splitSpriteScopedName(name);
+  return split ? split : { spriteName: null, localName: name };
+}
+
+function nameToIdMap(items: Array<{ name: string; id: string }>) {
+  return Object.fromEntries(items.map((item) => [item.name, item.id]));
+}
+
+function scratchDataNameMap(target: ScratchTarget, spriteName: string, kind: "variables" | "lists") {
+  return Object.fromEntries(Object.values(target[kind] ?? {}).flatMap((entry) => {
+    const name = String(entry?.[0] ?? "").trim();
+    return name ? [[name, `${spriteName}: ${name}`]] : [];
+  }));
+}
+
+function mapName(name: string, names: Record<string, string>) {
+  return names[name] ?? name;
+}
+
+function mapAssetName(name: string, map: Record<string, string> | undefined) {
+  return map?.[name] ?? name;
+}
+
+function scratchObjectName(name: string) {
+  if (name === "_mouse_") return "mouse-pointer";
+  if (name === "_edge_") return "edge";
+  if (name === "_stage_") return "Stage";
+  if (name === "_random_") return "random position";
+  return name;
+}
+
+function scopeValue(value: ScriptValue, variableNames: Record<string, string>, listNames: Record<string, string>): ScriptValue {
+  if (typeof value === "number" || typeof value === "string") return value;
+  switch (value.type) {
+    case "variable":
+      return { ...value, name: mapName(value.name, variableNames) };
+    case "random":
+      return { ...value, from: scopeValue(value.from, variableNames, listNames), to: scopeValue(value.to, variableNames, listNames) };
+    case "arithmetic":
+      return { ...value, left: scopeValue(value.left, variableNames, listNames), right: scopeValue(value.right, variableNames, listNames) };
+    case "round":
+    case "math":
+    case "lengthOf":
+      return { ...value, value: scopeValue(value.value, variableNames, listNames) };
+    case "join":
+      return { ...value, values: value.values.map((item) => scopeValue(item, variableNames, listNames)) };
+    case "letterOf":
+      return { ...value, index: scopeValue(value.index, variableNames, listNames), text: scopeValue(value.text, variableNames, listNames) };
+    case "listItem":
+      return { ...value, list: mapName(value.list, listNames), index: scopeValue(value.index, variableNames, listNames) };
+    case "listIndex":
+      return { ...value, list: mapName(value.list, listNames), item: scopeValue(value.item, variableNames, listNames) };
+    case "listLength":
+      return { ...value, list: mapName(value.list, listNames) };
+    default:
+      return value;
+  }
+}
+
+function scopeCondition(condition: ScriptCondition, variableNames: Record<string, string>, listNames: Record<string, string>): ScriptCondition {
+  switch (condition.type) {
+    case "not":
+      return { ...condition, condition: scopeCondition(condition.condition, variableNames, listNames) };
+    case "and":
+    case "or":
+      return { ...condition, left: scopeCondition(condition.left, variableNames, listNames), right: scopeCondition(condition.right, variableNames, listNames) };
+    case "compare":
+      return { ...condition, left: scopeValue(condition.left, variableNames, listNames), right: scopeValue(condition.right, variableNames, listNames) };
+    case "contains":
+      return { ...condition, text: scopeValue(condition.text, variableNames, listNames), search: scopeValue(condition.search, variableNames, listNames) };
+    case "listContains":
+      return { ...condition, list: mapName(condition.list, listNames), item: scopeValue(condition.item, variableNames, listNames) };
+    default:
+      return condition;
+  }
+}
+
+function scopeNode(node: ScriptNode, variableNames: Record<string, string>, listNames: Record<string, string>): ScriptNode {
+  switch (node.type) {
+    case "move":
+      return { ...node, steps: scopeValue(node.steps, variableNames, listNames) };
+    case "turn":
+      return { ...node, degrees: scopeValue(node.degrees, variableNames, listNames) };
+    case "setPosition":
+      return { ...node, x: scopeValue(node.x, variableNames, listNames), y: scopeValue(node.y, variableNames, listNames) };
+    case "changeX":
+      return { ...node, dx: scopeValue(node.dx, variableNames, listNames) };
+    case "changeY":
+      return { ...node, dy: scopeValue(node.dy, variableNames, listNames) };
+    case "setX":
+      return { ...node, x: scopeValue(node.x, variableNames, listNames) };
+    case "setY":
+      return { ...node, y: scopeValue(node.y, variableNames, listNames) };
+    case "setDirection":
+    case "pointInDirection":
+      return { ...node, direction: scopeValue(node.direction, variableNames, listNames) };
+    case "glideToPosition":
+      return { ...node, seconds: scopeValue(node.seconds, variableNames, listNames), x: scopeValue(node.x, variableNames, listNames), y: scopeValue(node.y, variableNames, listNames) };
+    case "glideToObject":
+      return { ...node, seconds: scopeValue(node.seconds, variableNames, listNames) };
+    case "say":
+    case "think":
+      return { ...node, text: scopeValue(node.text, variableNames, listNames) };
+    case "sayForSeconds":
+    case "thinkForSeconds":
+      return { ...node, text: scopeValue(node.text, variableNames, listNames), seconds: scopeValue(node.seconds, variableNames, listNames) };
+    case "changeSize":
+      return { ...node, amount: scopeValue(node.amount, variableNames, listNames) };
+    case "setSize":
+      return { ...node, size: scopeValue(node.size, variableNames, listNames) };
+    case "changeGraphicEffect":
+      return { ...node, amount: scopeValue(node.amount, variableNames, listNames) };
+    case "setGraphicEffect":
+      return { ...node, value: scopeValue(node.value, variableNames, listNames) };
+    case "changeSoundEffect":
+      return { ...node, amount: scopeValue(node.amount, variableNames, listNames) };
+    case "setSoundEffect":
+      return { ...node, value: scopeValue(node.value, variableNames, listNames) };
+    case "changeVolume":
+      return { ...node, amount: scopeValue(node.amount, variableNames, listNames) };
+    case "setVolume":
+      return { ...node, volume: scopeValue(node.volume, variableNames, listNames) };
+    case "setVariable":
+      return { ...node, name: mapName(node.name, variableNames), value: scopeValue(node.value, variableNames, listNames) };
+    case "changeVariable":
+      return { ...node, name: mapName(node.name, variableNames), amount: scopeValue(node.amount, variableNames, listNames) };
+    case "showVariable":
+    case "hideVariable":
+      return { ...node, name: mapName(node.name, variableNames) };
+    case "listAdd":
+      return { ...node, list: mapName(node.list, listNames), item: scopeValue(node.item, variableNames, listNames) };
+    case "listDelete":
+      return { ...node, list: mapName(node.list, listNames), index: node.index === "all" ? "all" : scopeValue(node.index, variableNames, listNames) };
+    case "listInsert":
+      return { ...node, list: mapName(node.list, listNames), index: scopeValue(node.index, variableNames, listNames), item: scopeValue(node.item, variableNames, listNames) };
+    case "listReplace":
+      return { ...node, list: mapName(node.list, listNames), index: scopeValue(node.index, variableNames, listNames), item: scopeValue(node.item, variableNames, listNames) };
+    case "showList":
+    case "hideList":
+      return { ...node, list: mapName(node.list, listNames) };
+    case "wait":
+      return { ...node, seconds: scopeValue(node.seconds, variableNames, listNames) };
+    case "repeat":
+      return { ...node, times: scopeValue(node.times, variableNames, listNames), body: scopeStack(node.body, variableNames, listNames) };
+    case "repeatUntil":
+      return { ...node, condition: scopeCondition(node.condition, variableNames, listNames), body: scopeStack(node.body, variableNames, listNames) };
+    case "waitUntil":
+      return { ...node, condition: scopeCondition(node.condition, variableNames, listNames) };
+    case "forever":
+      return { ...node, body: scopeStack(node.body, variableNames, listNames) };
+    case "if":
+      return { ...node, condition: scopeCondition(node.condition, variableNames, listNames), body: scopeStack(node.body, variableNames, listNames) };
+    case "ifElse":
+      return { ...node, condition: scopeCondition(node.condition, variableNames, listNames), thenBody: scopeStack(node.thenBody, variableNames, listNames), elseBody: scopeStack(node.elseBody, variableNames, listNames) };
+    default:
+      return node;
+  }
+}
+
+function scopeStack(stack: ScriptNode[], variableNames: Record<string, string>, listNames: Record<string, string>) {
+  return stack.map((node) => scopeNode(node, variableNames, listNames));
+}
+
+function scopePrograms(programs: ReturnType<typeof parseScratchTargetPrograms>, variableNames: Record<string, string>, listNames: Record<string, string>): ReturnType<typeof parseScratchTargetPrograms> {
+  const mapProgram = (program: ScriptProgram) => program.map((stack) => scopeStack(stack, variableNames, listNames));
+  return {
+    start: mapProgram(programs.start),
+    cloneStart: mapProgram(programs.cloneStart),
+    broadcasts: Object.fromEntries(Object.entries(programs.broadcasts).map(([key, program]) => [key, mapProgram(program)])),
+    backdrops: Object.fromEntries(Object.entries(programs.backdrops).map(([key, program]) => [key, mapProgram(program)])),
+    keyPresses: Object.fromEntries(Object.entries(programs.keyPresses).map(([key, program]) => [key, mapProgram(program)])),
+    spriteClicked: mapProgram(programs.spriteClicked),
+    stageClicked: mapProgram(programs.stageClicked),
+  };
+}
+
+function createScratchMonitors(document: ProjectDocument): ScratchMonitor[] {
+  const variableMonitors = (document.variableWatchers ?? []).map((watcher) => {
+    const { spriteName, localName } = watcherNameParts(watcher.name);
+    return {
+      id: `${spriteName ? `${spriteName}:` : ""}${localName}`,
+      mode: watcher.mode === "large" || watcher.mode === "slider" ? watcher.mode : "default",
+      opcode: "data_variable",
+      params: { VARIABLE: localName },
+      spriteName,
+      x: Math.round(clampPercent(watcher.x, 100) * 4.8),
+      y: Math.round(clampPercent(watcher.y, 100) * 3.6),
+      visible: watcher.visible !== false,
+    } satisfies ScratchMonitor;
+  });
+
+  const listMonitors = (document.listWatchers ?? []).map((watcher) => {
+    const { spriteName, localName } = watcherNameParts(watcher.name);
+    return {
+      id: `${spriteName ? `${spriteName}:` : ""}${localName}`,
+      mode: "list",
+      opcode: "data_listcontents",
+      params: { LIST: localName },
+      spriteName,
+      x: Math.round(clampPercent(watcher.x, 100) * 4.8),
+      y: Math.round(clampPercent(watcher.y, 100) * 3.6),
+      visible: watcher.visible !== false,
+    } satisfies ScratchMonitor;
+  });
+
+  return [...variableMonitors, ...listMonitors];
 }
 
 export async function exportProjectToSb3(projectName: string, document: ProjectDocument) {
@@ -353,7 +585,7 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
     broadcasts: {},
     blocks: {},
     comments: {},
-    currentCostume: Math.max(0, stageCostumes.findIndex((c) => c.name === (stage.backdrops ?? [])[0]?.name)),
+    currentCostume: Math.max(0, (stage.backdrops ?? []).findIndex((backdrop) => backdrop.id === stage.currentBackdropId)),
     costumes: stageCostumes.length > 0 ? stageCostumes : [{
       ...addAsset("Backdrop 1", undefined, stage.background, "svg"),
       name: "Backdrop 1",
@@ -362,7 +594,7 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
       rotationCenterY: 180,
     }],
     sounds: stageSounds,
-    volume: 100,
+    volume: typeof stage.volume === "number" ? stage.volume : 100,
     layerOrder: 0,
     tempo: 60,
     videoTransparency: 50,
@@ -419,13 +651,13 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
         rotationCenterY: 180,
       }],
       sounds: await Promise.all((sprite.sounds ?? []).map((sound, soundIndex) => addSoundAsset(sound, `Sound ${soundIndex + 1}`))),
-      volume: 100,
+      volume: typeof sprite.volume === "number" ? sprite.volume : 100,
       layerOrder: sprite.layer ?? spriteIndex + 1,
       x: sprite.x,
       y: sprite.y,
       size: sprite.size,
       direction: sprite.direction,
-      draggable: false,
+      draggable: sprite.draggable === true,
       rotationStyle: "all around",
       visible: sprite.visible,
     };
@@ -433,7 +665,7 @@ export async function exportProjectToSb3(projectName: string, document: ProjectD
 
   const scratchProject: ScratchProjectJson = {
     targets: [stageTarget, ...spriteTargets],
-    monitors: [],
+    monitors: createScratchMonitors(document),
     extensions: [],
     meta: {
       semver: "3.0.0",
@@ -468,10 +700,24 @@ function parseScratchVariables(target: ScratchTarget, spriteName?: string) {
   const entries = Object.values(target.variables ?? {});
   const out: Record<string, number | string> = {};
   for (const entry of entries) {
+    if (!spriteName && entry?.[2] === true) continue;
     const name = String(entry?.[0] ?? "").trim();
     if (!name) continue;
     const scoped = spriteName ? `${spriteName}: ${name}` : name;
     out[scoped] = (entry?.[1] ?? 0) as number | string;
+  }
+  return out;
+}
+
+function parseScratchCloudVariables(target: ScratchTarget) {
+  const entries = Object.values(target.variables ?? {});
+  const out: Record<string, number> = {};
+  for (const entry of entries) {
+    if (entry?.[2] !== true) continue;
+    const name = String(entry?.[0] ?? "").trim();
+    if (!name) continue;
+    const value = Number(entry?.[1] ?? 0);
+    out[name] = Number.isFinite(value) ? value : 0;
   }
   return out;
 }
@@ -486,6 +732,43 @@ function parseScratchLists(target: ScratchTarget, spriteName?: string) {
     out[scoped] = Array.isArray(entry?.[1]) ? entry[1] : [];
   }
   return out;
+}
+
+function monitorName(monitor: ScratchMonitor, key: "VARIABLE" | "LIST") {
+  const name = String(monitor.params?.[key] ?? "").trim();
+  if (!name) return "";
+  return monitor.spriteName ? `${monitor.spriteName}: ${name}` : name;
+}
+
+function parseScratchMonitors(monitors: ScratchMonitor[]) {
+  const variableWatchers = monitors.flatMap((monitor, index) => {
+    if (monitor.opcode !== "data_variable") return [];
+    const name = monitorName(monitor, "VARIABLE");
+    if (!name) return [];
+    return [{
+      id: monitor.id || `watcher-${index}-${name}`,
+      name,
+      visible: monitor.visible !== false,
+      mode: monitor.mode === "large" || monitor.mode === "slider" ? monitor.mode : "normal",
+      x: typeof monitor.x === "number" ? clampPercent((monitor.x / 480) * 100, 92) : 4,
+      y: typeof monitor.y === "number" ? clampPercent((monitor.y / 360) * 100, 92) : 4 + index * 8,
+    }];
+  });
+
+  const listWatchers = monitors.flatMap((monitor, index) => {
+    if (monitor.opcode !== "data_listcontents") return [];
+    const name = monitorName(monitor, "LIST");
+    if (!name) return [];
+    return [{
+      id: monitor.id || `list-watcher-${index}-${name}`,
+      name,
+      visible: monitor.visible !== false,
+      x: typeof monitor.x === "number" ? clampPercent((monitor.x / 480) * 100, 84) : 4,
+      y: typeof monitor.y === "number" ? clampPercent((monitor.y / 360) * 100, 76) : 14 + index * 10,
+    }];
+  });
+
+  return { variableWatchers, listWatchers };
 }
 
 async function parseScratchSounds(target: ScratchTarget, zip: JSZip) {
@@ -522,11 +805,6 @@ function readInputBlockId(block: ScratchBlock | undefined, name: string) {
   for (let i = input.length - 1; i >= 0; i -= 1) {
     const candidate = input[i];
     if (typeof candidate === "string") return candidate;
-    if (Array.isArray(candidate)) {
-      for (let j = candidate.length - 1; j >= 0; j -= 1) {
-        if (typeof candidate[j] === "string") return candidate[j];
-      }
-    }
   }
   return null;
 }
@@ -557,10 +835,14 @@ function readInputValue(block: ScratchBlock | undefined, name: string, blocks: R
   return readInputLiteral(block, name) ?? 0;
 }
 
-function readSoundName(block: ScratchBlock | undefined, blocks: Record<string, ScratchBlock>) {
-  const menuId = readInputBlockId(block, "SOUND_MENU");
+function readMenuValue(block: ScratchBlock | undefined, inputName: string, fieldName: string, blocks: Record<string, ScratchBlock>, fallback: string) {
+  const menuId = readInputBlockId(block, inputName);
   const menu = menuId ? blocks[menuId] : undefined;
-  return getFieldValue(menu, "SOUND_MENU") || getFieldValue(block, "SOUND_MENU") || getFieldValue(block, "SOUND") || "sound-1";
+  return getFieldValue(menu, fieldName) || getFieldValue(block, fieldName) || fallback;
+}
+
+function readSoundName(block: ScratchBlock | undefined, blocks: Record<string, ScratchBlock>) {
+  return readMenuValue(block, "SOUND_MENU", "SOUND_MENU", blocks, getFieldValue(block, "SOUND") || "sound-1");
 }
 
 function parseCondition(blockId: string | null, blocks: Record<string, ScratchBlock>): ScriptCondition {
@@ -581,11 +863,13 @@ function parseCondition(blockId: string | null, blocks: Record<string, ScratchBl
       return { type: "compare", operator: ">", left: readInputValue(block, "OPERAND1", blocks), right: readInputValue(block, "OPERAND2", blocks) };
     case "operator_lt":
       return { type: "compare", operator: "<", left: readInputValue(block, "OPERAND1", blocks), right: readInputValue(block, "OPERAND2", blocks) };
-    case "sensing_keypressed":
-      return { type: "keyPressed", key: getFieldValue(block, "KEY_OPTION") || "space" };
+    case "sensing_keypressed": {
+      const key = readMenuValue(block, "KEY_OPTION", "KEY_OPTION", blocks, "space").toLowerCase();
+      return key === "any" ? { type: "anyKeyPressed" } : { type: "keyPressed", key };
+    }
     case "sensing_touchingobject": {
-      const obj = getFieldValue(block, "TOUCHINGOBJECTMENU") || getFieldValue(block, "OBJECT") || "edge";
-      return { type: "touchingObject", object: obj === "_mouse_" ? "mouse-pointer" : obj };
+      const obj = readMenuValue(block, "TOUCHINGOBJECTMENU", "TOUCHINGOBJECTMENU", blocks, getFieldValue(block, "OBJECT") || "edge");
+      return { type: "touchingObject", object: scratchObjectName(obj) };
     }
     case "sensing_mousedown":
       return { type: "mouseDown" };
@@ -655,7 +939,7 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
       return { type: "round", value: readInputValue(block, "NUM", blocks) };
     case "operator_mathop": {
       const operator = getFieldValue(block, "OPERATOR").toLowerCase();
-      const map: Record<string, "abs" | "floor" | "ceiling" | "sqrt" | "sin" | "cos" | "tan"> = {
+      const map: Record<string, "abs" | "floor" | "ceiling" | "sqrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "ln" | "log" | "e^" | "10^"> = {
         abs: "abs",
         floor: "floor",
         ceiling: "ceiling",
@@ -663,6 +947,15 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
         sin: "sin",
         cos: "cos",
         tan: "tan",
+        asin: "asin",
+        acos: "acos",
+        atan: "atan",
+        ln: "ln",
+        log: "log",
+        "e ^": "e^",
+        "10 ^": "10^",
+        "e^": "e^",
+        "10^": "10^",
       };
       return { type: "math", operator: map[operator] ?? "abs", value: readInputValue(block, "NUM", blocks) };
     }
@@ -695,7 +988,7 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
     case "sensing_of": {
       const rawProperty = (getFieldValue(block, "PROPERTY") || getFieldValue(block, "PROPERTYOF") || "x position").toLowerCase();
       const rawObject = readInputValue(block, "OBJECT", blocks);
-      const object = typeof rawObject === "string" && rawObject.trim().length > 0 ? rawObject : (getFieldValue(block, "OBJECT") || "Stage");
+      const object = scratchObjectName(typeof rawObject === "string" && rawObject.trim().length > 0 ? rawObject : (getFieldValue(block, "OBJECT") || "Stage"));
       const property = rawProperty.includes("x")
         ? "x"
         : rawProperty.includes("y")
@@ -739,8 +1032,8 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
     case "sound_volume":
       return { type: "soundVolume" };
     case "sensing_distanceto": {
-      const obj = getFieldValue(block, "DISTANCETOMENU") || getFieldValue(block, "OBJECT") || "center";
-      return { type: "distanceToObject", object: obj === "_mouse_" ? "mouse-pointer" : obj === "_edge_" ? "edge" : obj };
+      const obj = readMenuValue(block, "DISTANCETOMENU", "DISTANCETOMENU", blocks, getFieldValue(block, "OBJECT") || "center");
+      return { type: "distanceToObject", object: scratchObjectName(obj) };
     }
     case "sensing_touchingobjectmenu":
       return getFieldValue(block, "TOUCHINGOBJECTMENU");
@@ -752,6 +1045,17 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
       return getFieldValue(block, "OBJECT");
     case "sound_sounds_menu":
       return getFieldValue(block, "SOUND_MENU");
+    case "event_broadcast_menu":
+      return getFieldValue(block, "BROADCAST_OPTION");
+    case "looks_costume":
+      return getFieldValue(block, "COSTUME");
+    case "looks_backdrops":
+      return getFieldValue(block, "BACKDROP");
+    case "motion_goto_menu":
+    case "motion_glideto_menu":
+      return getFieldValue(block, "TO");
+    case "motion_pointtowards_menu":
+      return getFieldValue(block, "TOWARDS");
     case "argument_reporter_string_number":
       return getFieldValue(block, "VALUE");
     case "argument_reporter_boolean":
@@ -763,7 +1067,7 @@ function parseReporter(blockId: string | null, blocks: Record<string, ScratchBlo
   }
 }
 
-function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>): ScriptNode[] {
+function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>, assetMaps: ScratchAssetMaps = {}): ScriptNode[] {
   const nodes: ScriptNode[] = [];
   let currentId = startId;
 
@@ -805,21 +1109,21 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
         nodes.push({ type: "ifOnEdgeBounce" });
         break;
       case "motion_goto": {
-        const gotoObj = getFieldValue(block, "TO") || "_mouse_";
-        nodes.push({ type: "goToObject", object: gotoObj === "_mouse_" ? "mouse-pointer" : gotoObj === "_random_" ? "random position" : gotoObj });
+        const gotoObj = readMenuValue(block, "TO", "TO", blocks, "_mouse_");
+        nodes.push({ type: "goToObject", object: scratchObjectName(gotoObj) });
         break;
       }
       case "motion_pointtowards": {
-        const pointObj = getFieldValue(block, "TOWARDS") || "_mouse_";
-        nodes.push({ type: "pointTowardObject", object: pointObj === "_mouse_" ? "mouse-pointer" : pointObj });
+        const pointObj = readMenuValue(block, "TOWARDS", "TOWARDS", blocks, "_mouse_");
+        nodes.push({ type: "pointTowardObject", object: scratchObjectName(pointObj) });
         break;
       }
       case "motion_glidesecstoxy":
         nodes.push({ type: "glideToPosition", seconds: readInputValue(block, "SECS", blocks), x: readInputValue(block, "X", blocks), y: readInputValue(block, "Y", blocks) });
         break;
       case "motion_glideto": {
-        const glideObj = getFieldValue(block, "TO") || "_mouse_";
-        nodes.push({ type: "glideToObject", seconds: readInputValue(block, "SECS", blocks), object: glideObj === "_mouse_" ? "mouse-pointer" : glideObj });
+        const glideObj = readMenuValue(block, "TO", "TO", blocks, "_mouse_");
+        nodes.push({ type: "glideToObject", seconds: readInputValue(block, "SECS", blocks), object: scratchObjectName(glideObj) });
         break;
       }
         break;
@@ -848,16 +1152,16 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
         nodes.push({ type: "setSize", size: readInputValue(block, "SIZE", blocks) });
         break;
       case "looks_switchcostumeto":
-        nodes.push({ type: "switchCostume", costumeId: getFieldValue(block, "COSTUME") || "costume-1" });
+        nodes.push({ type: "switchCostume", costumeId: mapAssetName(readMenuValue(block, "COSTUME", "COSTUME", blocks, "costume-1"), assetMaps.costumes) });
         break;
       case "looks_nextcostume":
         nodes.push({ type: "nextCostume" });
         break;
       case "looks_switchbackdropto":
-        nodes.push({ type: "switchBackdrop", backdropId: getFieldValue(block, "BACKDROP") || "backdrop-1" });
+        nodes.push({ type: "switchBackdrop", backdropId: mapAssetName(readMenuValue(block, "BACKDROP", "BACKDROP", blocks, "backdrop-1"), assetMaps.backdrops) });
         break;
       case "looks_switchbackdropandwait":
-        nodes.push({ type: "switchBackdropAndWait", backdropId: getFieldValue(block, "BACKDROP") || "backdrop-1" });
+        nodes.push({ type: "switchBackdropAndWait", backdropId: mapAssetName(readMenuValue(block, "BACKDROP", "BACKDROP", blocks, "backdrop-1"), assetMaps.backdrops) });
         break;
       case "looks_nextbackdrop":
         nodes.push({ type: "nextBackdrop" });
@@ -873,31 +1177,31 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
         break;
       }
       case "event_broadcast":
-        nodes.push({ type: "broadcast", message: readInputValue(block, "BROADCAST_INPUT", blocks).toString() });
+        nodes.push({ type: "broadcast", message: String(readInputValue(block, "BROADCAST_INPUT", blocks) || "message1") });
         break;
       case "event_broadcastandwait":
-        nodes.push({ type: "broadcastAndWait", message: readInputValue(block, "BROADCAST_INPUT", blocks).toString() });
+        nodes.push({ type: "broadcastAndWait", message: String(readInputValue(block, "BROADCAST_INPUT", blocks) || "message1") });
         break;
       case "control_wait":
         nodes.push({ type: "wait", seconds: readInputValue(block, "DURATION", blocks) });
         break;
       case "control_repeat":
-        nodes.push({ type: "repeat", times: readInputValue(block, "TIMES", blocks), body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks) });
+        nodes.push({ type: "repeat", times: readInputValue(block, "TIMES", blocks), body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks, assetMaps) });
         break;
       case "control_forever":
-        nodes.push({ type: "forever", body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks) });
+        nodes.push({ type: "forever", body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks, assetMaps) });
         break;
       case "control_repeat_until":
-        nodes.push({ type: "repeatUntil", condition: parseCondition(readInputBlockId(block, "CONDITION"), blocks), body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks) });
+        nodes.push({ type: "repeatUntil", condition: parseCondition(readInputBlockId(block, "CONDITION"), blocks), body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks, assetMaps) });
         break;
       case "control_wait_until":
         nodes.push({ type: "waitUntil", condition: parseCondition(readInputBlockId(block, "CONDITION"), blocks) });
         break;
       case "control_if":
-        nodes.push({ type: "if", condition: parseCondition(readInputBlockId(block, "CONDITION"), blocks), body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks) });
+        nodes.push({ type: "if", condition: parseCondition(readInputBlockId(block, "CONDITION"), blocks), body: parseStack(readInputBlockId(block, "SUBSTACK"), blocks, assetMaps) });
         break;
       case "control_if_else":
-        nodes.push({ type: "ifElse", condition: parseCondition(readInputBlockId(block, "CONDITION"), blocks), thenBody: parseStack(readInputBlockId(block, "SUBSTACK"), blocks), elseBody: parseStack(readInputBlockId(block, "SUBSTACK2"), blocks) });
+        nodes.push({ type: "ifElse", condition: parseCondition(readInputBlockId(block, "CONDITION"), blocks), thenBody: parseStack(readInputBlockId(block, "SUBSTACK"), blocks, assetMaps), elseBody: parseStack(readInputBlockId(block, "SUBSTACK2"), blocks, assetMaps) });
         break;
       case "control_create_clone_of":
         nodes.push({ type: "createClone" });
@@ -967,8 +1271,8 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
         nodes.push({ type: "hideVariable", name: getFieldValue(block, "VARIABLE") || "variable" });
         break;
       case "control_stop": {
-        const stopMode = getFieldValue(block, "STOP_OPTION") || getFieldValue(block, "STOP") || "all";
-        nodes.push({ type: "stop", mode: stopMode === "this_script" || stopMode === "thisScript" ? "thisScript" : "all" });
+        const stopMode = (getFieldValue(block, "STOP_OPTION") || getFieldValue(block, "STOP") || "all").toLowerCase().replace(/[_\s-]/g, "");
+        nodes.push({ type: "stop", mode: stopMode === "thisscript" ? "thisScript" : "all" });
         break;
       }
       case "sensing_resettimer":
@@ -1020,7 +1324,7 @@ function parseStack(startId: string | null, blocks: Record<string, ScratchBlock>
   return nodes;
 }
 
-function parseScratchTargetPrograms(target: ScratchTargetWithBlocks) {
+function parseScratchTargetPrograms(target: ScratchTargetWithBlocks, assetMaps: ScratchAssetMaps = {}) {
   const start: ScriptProgram = [];
   const cloneStart: ScriptProgram = [];
   const broadcasts: ScriptEventPrograms = {};
@@ -1032,50 +1336,50 @@ function parseScratchTargetPrograms(target: ScratchTargetWithBlocks) {
   for (const block of Object.values(target.blocks ?? {})) {
     if (!block?.topLevel) continue;
     if (block.opcode === "event_whenflagclicked") {
-      start.push(parseStack(block.next, target.blocks));
+      start.push(parseStack(block.next, target.blocks, assetMaps));
       continue;
     }
     if (block.opcode === "control_start_as_clone") {
-      cloneStart.push(parseStack(block.next, target.blocks));
+      cloneStart.push(parseStack(block.next, target.blocks, assetMaps));
       continue;
     }
     if (block.opcode === "event_whenbroadcastreceived") {
       const message = getFieldValue(block, "BROADCAST_OPTION") || "message1";
       if (!broadcasts[message]) broadcasts[message] = [];
-      broadcasts[message].push(parseStack(block.next, target.blocks));
+      broadcasts[message].push(parseStack(block.next, target.blocks, assetMaps));
       continue;
     }
     if (block.opcode === "event_whenbackdropswitchesto") {
-      const backdrop = getFieldValue(block, "BACKDROP") || "backdrop-1";
+      const backdrop = mapAssetName(getFieldValue(block, "BACKDROP") || "backdrop-1", assetMaps.backdrops);
       if (!backdrops[backdrop]) backdrops[backdrop] = [];
-      backdrops[backdrop].push(parseStack(block.next, target.blocks));
+      backdrops[backdrop].push(parseStack(block.next, target.blocks, assetMaps));
       continue;
     }
     if (block.opcode === "event_whenkeypressed") {
       const key = (getFieldValue(block, "KEY_OPTION") || "space").toLowerCase();
       if (!keyPresses[key]) keyPresses[key] = [];
-      keyPresses[key].push(parseStack(block.next, target.blocks));
+      keyPresses[key].push(parseStack(block.next, target.blocks, assetMaps));
       continue;
     }
     if (block.opcode === "event_whenstageclicked") {
-      stageClicked.push(parseStack(block.next, target.blocks));
+      stageClicked.push(parseStack(block.next, target.blocks, assetMaps));
       continue;
     }
     if (block.opcode === "event_whenthisspriteclicked") {
-      spriteClicked.push(parseStack(block.next, target.blocks));
-      continue;
-    }
-    if (block.opcode === "event_whengreaterthan") {
-      start.push(parseStack(block.next, target.blocks));
-      continue;
-    }
-    if (block.opcode === "procedures_definition") {
-      start.push(parseStack(block.next, target.blocks));
+      spriteClicked.push(parseStack(block.next, target.blocks, assetMaps));
       continue;
     }
   }
 
   return { start, cloneStart, broadcasts, backdrops, keyPresses, spriteClicked, stageClicked };
+}
+
+function safeProgramsToWorkspaceState(programs: ReturnType<typeof parseScratchTargetPrograms>) {
+  try {
+    return programsToWorkspaceState(programs.start, programs.cloneStart, programs.broadcasts, programs.backdrops, programs.keyPresses, programs.spriteClicked, programs.stageClicked);
+  } catch {
+    return null;
+  }
 }
 
 
@@ -1123,10 +1427,11 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
   }));
 
   const spriteTargets = parsed.targets.filter((target) => !target.isStage);
-  const stagePrograms = parseScratchTargetPrograms(stageTarget as ScratchTargetWithBlocks);
+  const backdropNameToId = nameToIdMap(stageCostumes);
+  const stagePrograms = parseScratchTargetPrograms(stageTarget as ScratchTargetWithBlocks, { backdrops: backdropNameToId });
   const stageSounds = await parseScratchSounds(stageTarget, zip);
+  const { variableWatchers, listWatchers } = parseScratchMonitors(parsed.monitors ?? []);
   const sprites = await Promise.all(spriteTargets.map(async (target, targetIndex) => {
-    const spritePrograms = parseScratchTargetPrograms(target as ScratchTargetWithBlocks);
     const costumes = await Promise.all((target.costumes ?? []).map(async (costume, index) => {
       const asset = zip.file(costume.md5ext);
       const bytes = asset ? new Uint8Array(await asset.async("uint8array")) : toSvgBytesFromFill(costume.name || `Costume ${index + 1}`, "#56CBF9");
@@ -1140,6 +1445,11 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
         rotationCenterY: costume.rotationCenterY,
       };
     }));
+    const spritePrograms = scopePrograms(
+      parseScratchTargetPrograms(target as ScratchTargetWithBlocks, { backdrops: backdropNameToId, costumes: nameToIdMap(costumes) }),
+      scratchDataNameMap(target, target.name, "variables"),
+      scratchDataNameMap(target, target.name, "lists"),
+    );
 
     return {
       id: `sprite-${targetIndex + 1}`,
@@ -1151,9 +1461,10 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
       layer: target.layerOrder ?? targetIndex,
       tone: "#56CBF9",
       visible: target.visible !== false,
+      draggable: target.draggable === true,
       sounds: await parseScratchSounds(target, zip),
       volume: typeof target.volume === "number" ? target.volume : 100,
-      workspaceState: programsToWorkspaceState(spritePrograms.start, spritePrograms.cloneStart, spritePrograms.broadcasts, spritePrograms.backdrops, spritePrograms.keyPresses, spritePrograms.spriteClicked, spritePrograms.stageClicked),
+      workspaceState: safeProgramsToWorkspaceState(spritePrograms),
       program: spritePrograms.start,
       cloneProgram: spritePrograms.cloneStart,
       broadcastPrograms: spritePrograms.broadcasts,
@@ -1170,11 +1481,11 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
 
   const document: ProjectDocument = {
     version: 1,
-    cloudVariables: {},
+    cloudVariables: parseScratchCloudVariables(stageTarget),
     variables: parseScratchVariables(stageTarget),
     lists: parseScratchLists(stageTarget),
-    variableWatchers: [],
-    listWatchers: [],
+    variableWatchers,
+    listWatchers,
     stage: {
       minX: -240,
       maxX: 240,
@@ -1183,7 +1494,7 @@ export async function importProjectFromSb3(file: File): Promise<{ name: string; 
       background: "#f5f5f7",
       backdrops: stageCostumes,
       currentBackdropId: stageCostumes[Math.max(0, stageTarget.currentCostume ?? 0)]?.id ?? stageCostumes[0]?.id,
-      workspaceState: programsToWorkspaceState(stagePrograms.start, stagePrograms.cloneStart, stagePrograms.broadcasts, stagePrograms.backdrops, stagePrograms.keyPresses, stagePrograms.spriteClicked, stagePrograms.stageClicked),
+      workspaceState: safeProgramsToWorkspaceState(stagePrograms),
       program: stagePrograms.start,
       broadcastPrograms: stagePrograms.broadcasts,
       backdropPrograms: stagePrograms.backdrops,

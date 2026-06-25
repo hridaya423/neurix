@@ -17,7 +17,7 @@ export type ScriptValue =
   | { type: "random"; from: ScriptValue; to: ScriptValue }
   | { type: "arithmetic"; operator: "+" | "-" | "*" | "/" | "%" | "^"; left: ScriptValue; right: ScriptValue }
   | { type: "round"; value: ScriptValue }
-  | { type: "math"; operator: "abs" | "floor" | "ceiling" | "sqrt" | "sin" | "cos" | "tan"; value: ScriptValue }
+  | { type: "math"; operator: "abs" | "floor" | "ceiling" | "sqrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "ln" | "log" | "e^" | "10^"; value: ScriptValue }
   | { type: "join"; values: ScriptValue[] }
   | { type: "letterOf"; index: ScriptValue; text: ScriptValue }
   | { type: "lengthOf"; text: ScriptValue }

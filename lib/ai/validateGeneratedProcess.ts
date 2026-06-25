@@ -6,37 +6,134 @@ export type GeneratedProcess = {
   ast: ScriptNode[];
 };
 
-const keys: KeyName[] = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"];
-const maxNodes = 80;
-const maxDepth = 8;
+export const SUPPORTED_STATEMENTS = [
+  "move",
+  "turn",
+  "setPosition",
+  "goHome",
+  "changeX",
+  "changeY",
+  "setX",
+  "setY",
+  "pointInDirection",
+  "ifOnEdgeBounce",
+  "say",
+  "sayForSeconds",
+  "think",
+  "thinkForSeconds",
+  "clearSpeech",
+  "changeSize",
+  "setSize",
+  "show",
+  "hide",
+  "nextCostume",
+  "nextBackdrop",
+  "goToLayer",
+  "wait",
+  "repeat",
+  "forever",
+  "if",
+  "ifElse",
+  "repeatUntil",
+  "waitUntil",
+  "stop",
+  "createClone",
+  "deleteClone",
+  "resetTimer",
+] as const;
+
+export const SUPPORTED_CONDITIONS = [
+  "keyPressed",
+  "touchingObject",
+  "touchingColor",
+  "colorTouchingColor",
+  "mouseDown",
+  "anyKeyPressed",
+  "not",
+  "and",
+  "or",
+  "compare",
+] as const;
+
+const keyValues: KeyName[] = [
+  " ",
+  "Enter",
+  "Tab",
+  "Backspace",
+  "Escape",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Shift",
+  "Control",
+  "Alt",
+  "Meta",
+  ..."abcdefghijklmnopqrstuvwxyz".split(""),
+  ..."0123456789".split(""),
+  "-", "=", "[", "]", ";", "'", ",", ".", "/", "\\",
+];
+const keySet = new Set<string>(keyValues);
+
+const touchingObjects = new Set(["edge", "mouse-pointer"]);
+const compareOperators = new Set(["=", "<", ">", "≤", "≥", "≠"]);
+const hexColor = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+const maxNodes = 100;
+const maxDepth = 10;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stringValue(value: unknown, fallback = "") {
-  return typeof value === "string" ? value.slice(0, 120) : fallback;
+function text(value: unknown, fallback: string, maxLen = 200) {
+  return typeof value === "string" ? value.slice(0, maxLen) : fallback;
 }
 
-function numberValue(value: unknown, fallback = 0, min = -500, max = 500) {
-  const number = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+function num(value: unknown, fallback = 0, min = -100000, max = 100000) {
+  const number = typeof value === "number" && Number.isFinite(value)
+    ? value
+    : typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))
+      ? Number(value)
+      : fallback;
   return Math.min(max, Math.max(min, number));
 }
 
+function intNum(value: unknown, fallback: number, min: number, max: number) {
+  return Math.round(num(value, fallback, min, max));
+}
+
+function key(value: unknown): KeyName {
+  return typeof value === "string" && keySet.has(value) ? value : " ";
+}
+
+function color(value: unknown, fallback: string) {
+  return typeof value === "string" && hexColor.test(value.trim()) ? value.trim() : fallback;
+}
+
 function validateCondition(value: unknown, depth: number): ScriptCondition {
-  if (depth > maxDepth || !isRecord(value) || typeof value.type !== "string") {
-    return { type: "compare", left: 1, operator: "=", right: 1 };
-  }
+  const fallback: ScriptCondition = { type: "compare", left: 0, operator: "=", right: 0 };
+  if (depth > maxDepth || !isRecord(value) || typeof value.type !== "string") return fallback;
 
   switch (value.type) {
-    case "keyPressed": {
-      const key = keys.includes(value.key as KeyName) ? value.key as KeyName : "Space";
-      return { type: "keyPressed", key };
-    }
+    case "keyPressed":
+      return { type: "keyPressed", key: key(value.key) };
     case "touchingObject": {
-      const object = typeof value.object === "string" ? value.object : "edge";
+      const object = typeof value.object === "string" && touchingObjects.has(value.object) ? value.object : "edge";
       return { type: "touchingObject", object };
     }
+    case "touchingColor":
+      return { type: "touchingColor", color: color(value.color, "#52c3f0") };
+    case "colorTouchingColor":
+      return {
+        type: "colorTouchingColor",
+        color: color(value.color, "#5b6d7c"),
+        touching: color(value.touching, "#d5e04a"),
+      };
+    case "mouseDown":
+      return { type: "mouseDown" };
+    case "anyKeyPressed":
+      return { type: "anyKeyPressed" };
     case "not":
       return { type: "not", condition: validateCondition(value.condition, depth + 1) };
     case "and":
@@ -52,16 +149,13 @@ function validateCondition(value: unknown, depth: number): ScriptCondition {
         right: validateCondition(value.right, depth + 1),
       };
     case "compare": {
-      const operator = value.operator === "<" || value.operator === ">" ? value.operator : "=";
-      return {
-        type: "compare",
-        left: numberValue(value.left),
-        operator,
-        right: numberValue(value.right),
-      };
+      const operator = typeof value.operator === "string" && compareOperators.has(value.operator)
+        ? (value.operator as "=" | "<" | ">" | "≤" | "≥" | "≠")
+        : "=";
+      return { type: "compare", left: num(value.left), operator, right: num(value.right) };
     }
     default:
-      return { type: "compare", left: 1, operator: "=", right: 1 };
+      return fallback;
   }
 }
 
@@ -76,58 +170,56 @@ function validateNodes(value: unknown, depth = 0, count = { value: 0 }): ScriptN
 
     switch (item.type) {
       case "move":
-        nodes.push({ type: "move", steps: numberValue(item.steps) });
+        nodes.push({ type: "move", steps: num(item.steps, 10) });
         break;
       case "turn":
-        nodes.push({ type: "turn", degrees: numberValue(item.degrees, 15, -360, 360) });
+        nodes.push({ type: "turn", degrees: num(item.degrees, 15, -360, 360) });
         break;
       case "setPosition":
-        nodes.push({ type: "setPosition", x: numberValue(item.x), y: numberValue(item.y) });
+        nodes.push({ type: "setPosition", x: num(item.x), y: num(item.y) });
         break;
       case "goHome":
         nodes.push({ type: "goHome" });
         break;
       case "changeX":
-        nodes.push({ type: "changeX", dx: numberValue(item.dx) });
+        nodes.push({ type: "changeX", dx: num(item.dx, 10) });
         break;
       case "changeY":
-        nodes.push({ type: "changeY", dy: numberValue(item.dy) });
+        nodes.push({ type: "changeY", dy: num(item.dy, 10) });
         break;
       case "setX":
-        nodes.push({ type: "setX", x: numberValue(item.x) });
+        nodes.push({ type: "setX", x: num(item.x) });
         break;
       case "setY":
-        nodes.push({ type: "setY", y: numberValue(item.y) });
+        nodes.push({ type: "setY", y: num(item.y) });
         break;
       case "setDirection":
-        nodes.push({ type: "setDirection", direction: numberValue(item.direction, 90, -360, 360) });
-        break;
       case "pointInDirection":
-        nodes.push({ type: "pointInDirection", direction: numberValue(item.direction, 90, -360, 360) });
+        nodes.push({ type: "pointInDirection", direction: num(item.direction, 90, -360, 360) });
         break;
       case "ifOnEdgeBounce":
         nodes.push({ type: "ifOnEdgeBounce" });
         break;
       case "say":
-        nodes.push({ type: "say", text: stringValue(item.text, "Hello") });
+        nodes.push({ type: "say", text: text(item.text, "Hello") });
         break;
       case "sayForSeconds":
-        nodes.push({ type: "sayForSeconds", text: stringValue(item.text, "Hello"), seconds: numberValue(item.seconds, 2, 0, 30) });
+        nodes.push({ type: "sayForSeconds", text: text(item.text, "Hello"), seconds: num(item.seconds, 2, 0, 3600) });
         break;
       case "think":
-        nodes.push({ type: "think", text: stringValue(item.text, "Hmm") });
+        nodes.push({ type: "think", text: text(item.text, "Hmm") });
         break;
       case "thinkForSeconds":
-        nodes.push({ type: "thinkForSeconds", text: stringValue(item.text, "Hmm"), seconds: numberValue(item.seconds, 2, 0, 30) });
+        nodes.push({ type: "thinkForSeconds", text: text(item.text, "Hmm"), seconds: num(item.seconds, 2, 0, 3600) });
         break;
       case "clearSpeech":
         nodes.push({ type: "clearSpeech" });
         break;
       case "changeSize":
-        nodes.push({ type: "changeSize", amount: numberValue(item.amount, 10, -100, 100) });
+        nodes.push({ type: "changeSize", amount: num(item.amount, 10, -1000, 1000) });
         break;
       case "setSize":
-        nodes.push({ type: "setSize", size: numberValue(item.size, 100, 1, 300) });
+        nodes.push({ type: "setSize", size: num(item.size, 100, 0, 1000) });
         break;
       case "show":
         nodes.push({ type: "show" });
@@ -138,14 +230,38 @@ function validateNodes(value: unknown, depth = 0, count = { value: 0 }): ScriptN
       case "nextCostume":
         nodes.push({ type: "nextCostume" });
         break;
+      case "nextBackdrop":
+        nodes.push({ type: "nextBackdrop" });
+        break;
+      case "goToLayer":
+        nodes.push({ type: "goToLayer", layer: item.layer === "back" ? "back" : "front" });
+        break;
       case "wait":
-        nodes.push({ type: "wait", seconds: numberValue(item.seconds, 1, 0, 30) });
+        nodes.push({ type: "wait", seconds: num(item.seconds, 1, 0, 3600) });
+        break;
+      case "resetTimer":
+        nodes.push({ type: "resetTimer" });
+        break;
+      case "stop":
+        nodes.push({ type: "stop", mode: item.mode === "thisScript" ? "thisScript" : "all" });
+        break;
+      case "createClone":
+        nodes.push({ type: "createClone" });
+        break;
+      case "deleteClone":
+        nodes.push({ type: "deleteClone" });
         break;
       case "repeat":
-        nodes.push({ type: "repeat", times: Math.round(numberValue(item.times, 3, 1, 100)), body: validateNodes(item.body, depth + 1, count) });
+        nodes.push({ type: "repeat", times: intNum(item.times, 10, 0, 100000), body: validateNodes(item.body, depth + 1, count) });
         break;
       case "forever":
         nodes.push({ type: "forever", body: validateNodes(item.body, depth + 1, count) });
+        break;
+      case "repeatUntil":
+        nodes.push({ type: "repeatUntil", condition: validateCondition(item.condition, depth + 1), body: validateNodes(item.body, depth + 1, count) });
+        break;
+      case "waitUntil":
+        nodes.push({ type: "waitUntil", condition: validateCondition(item.condition, depth + 1) });
         break;
       case "if":
         nodes.push({ type: "if", condition: validateCondition(item.condition, depth + 1), body: validateNodes(item.body, depth + 1, count) });
@@ -157,6 +273,8 @@ function validateNodes(value: unknown, depth = 0, count = { value: 0 }): ScriptN
           thenBody: validateNodes(item.thenBody, depth + 1, count),
           elseBody: validateNodes(item.elseBody, depth + 1, count),
         });
+        break;
+      default:
         break;
     }
   }
@@ -189,8 +307,8 @@ export function validateGeneratedProcess(content: string): GeneratedProcess {
   }
 
   return {
-    name: stringValue(parsed.name, "custom block"),
-    explanation: stringValue(parsed.explanation, "Generated editable blocks."),
+    name: text(parsed.name, "custom block", 120),
+    explanation: text(parsed.explanation, "Generated editable blocks.", 500),
     ast,
   };
 }

@@ -108,12 +108,29 @@ function toText(value: number | string) {
   return String(value);
 }
 
+function scratchEquals(left: number | string, right: number | string) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) return leftNumber === rightNumber;
+  return toText(left) === toText(right);
+}
+
 function getVariable(variables: Variables, name: string) {
   return variables[name] ?? 0;
 }
 
 function listIndex(value: number | string, length: number) {
+  const label = toText(value).toLowerCase();
+  if (label === "last") return Math.max(0, length - 1);
+  if (label === "random") return Math.max(0, Math.floor(Math.random() * length));
   return Math.max(0, Math.min(length - 1, Math.floor(toNumber(value)) - 1));
+}
+
+function listInsertIndex(value: number | string, length: number) {
+  const label = toText(value).toLowerCase();
+  if (label === "last") return length;
+  if (label === "random") return Math.max(0, Math.floor(Math.random() * (length + 1)));
+  return Math.max(0, Math.min(length, Math.floor(toNumber(value)) - 1));
 }
 
 function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variables): number | string {
@@ -177,6 +194,7 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
       const to = toNumber(valueOf(value.to, runtime, variables));
       const min = Math.min(from, to);
       const max = Math.max(from, to);
+      if (!Number.isInteger(from) || !Number.isInteger(to)) return Math.random() * (max - min) + min;
       return Math.floor(Math.random() * (max - min + 1)) + min;
     }
     case "arithmetic": {
@@ -199,7 +217,14 @@ function valueOf(value: ScriptValue, runtime: ScriptRuntime, variables: Variable
       if (value.operator === "sqrt") return Math.sqrt(Math.max(0, number));
       if (value.operator === "sin") return Math.sin((number * Math.PI) / 180);
       if (value.operator === "cos") return Math.cos((number * Math.PI) / 180);
-      return Math.tan((number * Math.PI) / 180);
+      if (value.operator === "tan") return Math.tan((number * Math.PI) / 180);
+      if (value.operator === "asin") return (Math.asin(number) * 180) / Math.PI;
+      if (value.operator === "acos") return (Math.acos(number) * 180) / Math.PI;
+      if (value.operator === "atan") return (Math.atan(number) * 180) / Math.PI;
+      if (value.operator === "ln") return Math.log(number);
+      if (value.operator === "log") return Math.log10(number);
+      if (value.operator === "e^") return Math.E ** number;
+      return 10 ** number;
     }
     case "join":
       return value.values.map((item) => toText(valueOf(item, runtime, variables))).join("");
@@ -253,8 +278,8 @@ function isConditionTrue(condition: ScriptCondition, runtime: ScriptRuntime, var
     case "compare": {
       const left = valueOf(condition.left, runtime, variables);
       const right = valueOf(condition.right, runtime, variables);
-      if (condition.operator === "=") return left === right;
-      if (condition.operator === "≠") return left !== right;
+      if (condition.operator === "=") return scratchEquals(left, right);
+      if (condition.operator === "≠") return !scratchEquals(left, right);
       const leftNumber = toNumber(left);
       const rightNumber = toNumber(right);
       if (condition.operator === "<") return leftNumber < rightNumber;
@@ -271,8 +296,8 @@ function isConditionTrue(condition: ScriptCondition, runtime: ScriptRuntime, var
   }
 }
 
-async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Variables): Promise<void> {
-  if (runtime.isCancelled()) return;
+async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Variables): Promise<boolean> {
+  if (runtime.isCancelled()) return true;
 
   switch (node.type) {
     case "move":
@@ -357,6 +382,12 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       if (node.object === "mouse-pointer") {
         targetX = runtime.getMouseX();
         targetY = runtime.getMouseY();
+      } else if (node.object === "random position") {
+        targetX = Math.round(Math.random() * 480 - 240);
+        targetY = Math.round(Math.random() * 360 - 180);
+      } else if (node.object === "center" || node.object === "edge" || node.object === "Stage") {
+        targetX = 0;
+        targetY = 0;
       } else {
         targetX = runtime.getSpriteX(node.object);
         targetY = runtime.getSpriteY(node.object);
@@ -429,7 +460,7 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       runtime.setDragMode(node.mode);
       break;
     case "stop":
-      return;
+      return true;
     case "show":
       runtime.show();
       break;
@@ -512,7 +543,7 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "listInsert": {
       const list = runtime.getList(node.list);
-      const index = Math.max(0, Math.min(list.length, Math.floor(toNumber(valueOf(node.index, runtime, variables))) - 1));
+      const index = listInsertIndex(valueOf(node.index, runtime, variables), list.length);
       runtime.setList(node.list, [...list.slice(0, index), valueOf(node.item, runtime, variables), ...list.slice(index)]);
       break;
     }
@@ -533,19 +564,19 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "deleteClone":
       runtime.deleteClone();
-      return;
+      return true;
     case "wait":
       await runtime.wait(Math.max(0, toNumber(valueOf(node.seconds, runtime, variables))) * 1000);
       break;
     case "repeat":
       for (let i = 0; i < Math.max(0, Math.floor(toNumber(valueOf(node.times, runtime, variables)))); i += 1) {
-        await runScript(node.body, runtime, variables);
-        if (runtime.isCancelled()) return;
+        if (await runNodes(node.body, runtime, variables)) return true;
+        if (runtime.isCancelled()) return true;
       }
       break;
     case "repeatUntil":
       while (!runtime.isCancelled() && !isConditionTrue(node.condition, runtime, variables)) {
-        await runScript(node.body, runtime, variables);
+        if (await runNodes(node.body, runtime, variables)) return true;
         await runtime.nextFrame();
       }
       break;
@@ -556,20 +587,20 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       break;
     case "forever":
       while (!runtime.isCancelled()) {
-        await runScript(node.body, runtime, variables);
+        if (await runNodes(node.body, runtime, variables)) return true;
         await runtime.nextFrame();
       }
       break;
     case "if":
       if (isConditionTrue(node.condition, runtime, variables)) {
-        await runScript(node.body, runtime, variables);
+        if (await runNodes(node.body, runtime, variables)) return true;
       }
       break;
     case "ifElse":
       if (isConditionTrue(node.condition, runtime, variables)) {
-        await runScript(node.thenBody, runtime, variables);
+        if (await runNodes(node.thenBody, runtime, variables)) return true;
       } else {
-        await runScript(node.elseBody, runtime, variables);
+        if (await runNodes(node.elseBody, runtime, variables)) return true;
       }
       break;
     case "customCall":
@@ -581,11 +612,17 @@ async function runNode(node: ScriptNode, runtime: ScriptRuntime, variables: Vari
       await runtime.wait(900);
       break;
   }
+  return false;
+}
+
+async function runNodes(nodes: ScriptNode[], runtime: ScriptRuntime, variables: Variables) {
+  for (const node of nodes) {
+    if (await runNode(node, runtime, variables)) return true;
+    if (runtime.isCancelled()) return true;
+  }
+  return false;
 }
 
 export async function runScript(nodes: ScriptNode[], runtime: ScriptRuntime, variables: Variables = {}) {
-  for (const node of nodes) {
-    await runNode(node, runtime, variables);
-    if (runtime.isCancelled()) return;
-  }
+  await runNodes(nodes, runtime, variables);
 }

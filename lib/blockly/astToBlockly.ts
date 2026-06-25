@@ -205,6 +205,10 @@ case "ifOnEdgeBounce":
       block = workspace.newBlock("control_stop");
       setField(block, "STOP", node.mode);
       return init(block);
+    case "createClone":
+      return init(workspace.newBlock("control_create_clone"));
+    case "deleteClone":
+      return init(workspace.newBlock("control_delete_clone"));
     case "show":
       return init(workspace.newBlock("looks_show"));
     case "hide":

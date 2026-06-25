@@ -8,6 +8,18 @@ function line(depth: number, content: string) {
   return `${"  ".repeat(depth)}${content}`;
 }
 
+function listIndexJs(value: string, list: string) {
+  return `(() => { const raw = ${value}; const label = String(raw).toLowerCase(); if (label === "last") return Math.max(0, ${list}.length - 1); if (label === "random") return Math.max(0, Math.floor(Math.random() * ${list}.length)); return Math.max(0, Math.min(Math.floor(Number(raw) || 1) - 1, ${list}.length - 1)); })()`;
+}
+
+function listInsertIndexJs(value: string, list: string) {
+  return `(() => { const raw = ${value}; const label = String(raw).toLowerCase(); if (label === "last") return ${list}.length; if (label === "random") return Math.max(0, Math.floor(Math.random() * (${list}.length + 1))); return Math.max(0, Math.min(${list}.length, Math.floor(Number(raw) || 1) - 1)); })()`;
+}
+
+function scratchEqualsJs(left: string, right: string) {
+  return `(() => { const left = ${left}; const right = ${right}; const leftNumber = Number(left); const rightNumber = Number(right); return Number.isFinite(leftNumber) && Number.isFinite(rightNumber) ? leftNumber === rightNumber : String(left) === String(right); })()`;
+}
+
 function valueToJs(value: ScriptValue): string {
   if (typeof value === "number") return String(value);
   if (typeof value === "string") return jsString(value);
@@ -60,7 +72,7 @@ function valueToJs(value: ScriptValue): string {
       if (value.property === "costumeNumber") return `api.getSpriteCostumeNumber(${jsString(value.object)})`;
       return `api.getSpriteVolume(${jsString(value.object)})`;
     case "random":
-      return `Math.floor(Math.random() * (${valueToJs(value.to)} - ${valueToJs(value.from)} + 1)) + ${valueToJs(value.from)}`;
+      return `(() => { const from = Number(${valueToJs(value.from)}) || 0; const to = Number(${valueToJs(value.to)}) || 0; const min = Math.min(from, to); const max = Math.max(from, to); return Number.isInteger(from) && Number.isInteger(to) ? Math.floor(Math.random() * (max - min + 1)) + min : Math.random() * (max - min) + min; })()`;
     case "arithmetic":
       if (value.operator === "^") return `(${valueToJs(value.left)} ** ${valueToJs(value.right)})`;
       return `(${valueToJs(value.left)} ${value.operator} ${valueToJs(value.right)})`;
@@ -73,7 +85,14 @@ function valueToJs(value: ScriptValue): string {
       if (value.operator === "abs") return `Math.abs(${valueToJs(value.value)})`;
       if (value.operator === "sin") return `Math.sin((${valueToJs(value.value)} * Math.PI) / 180)`;
       if (value.operator === "cos") return `Math.cos((${valueToJs(value.value)} * Math.PI) / 180)`;
-      return `Math.tan((${valueToJs(value.value)} * Math.PI) / 180)`;
+      if (value.operator === "tan") return `Math.tan((${valueToJs(value.value)} * Math.PI) / 180)`;
+      if (value.operator === "asin") return `(Math.asin(${valueToJs(value.value)}) * 180) / Math.PI`;
+      if (value.operator === "acos") return `(Math.acos(${valueToJs(value.value)}) * 180) / Math.PI`;
+      if (value.operator === "atan") return `(Math.atan(${valueToJs(value.value)}) * 180) / Math.PI`;
+      if (value.operator === "ln") return `Math.log(${valueToJs(value.value)})`;
+      if (value.operator === "log") return `Math.log10(${valueToJs(value.value)})`;
+      if (value.operator === "e^") return `Math.E ** ${valueToJs(value.value)}`;
+      return `10 ** ${valueToJs(value.value)}`;
     case "join":
       return value.values.map(valueToJs).join(" + ");
     case "letterOf":
@@ -81,7 +100,7 @@ function valueToJs(value: ScriptValue): string {
     case "lengthOf":
       return `String(${valueToJs(value.text)}).length`;
     case "listItem":
-      return `(api.getList(${jsString(value.list)})[Math.max(0, Math.min(Math.floor(Number(${valueToJs(value.index)}) || 1) - 1, api.getList(${jsString(value.list)}).length - 1))] ?? "")`;
+      return `(() => { const list = api.getList(${jsString(value.list)}); return list[${listIndexJs(valueToJs(value.index), "list")}] ?? ""; })()`;
     case "listIndex":
       return `(api.getList(${jsString(value.list)}).findIndex((item) => String(item) === String(${valueToJs(value.item)})) + 1)`;
     case "listLength":
@@ -118,8 +137,8 @@ function conditionToJs(condition: ScriptCondition): string {
     case "or":
       return `(${conditionToJs(condition.left)} || ${conditionToJs(condition.right)})`;
     case "compare":
-      if (condition.operator === "=") return `${valueToJs(condition.left)} === ${valueToJs(condition.right)}`;
-      if (condition.operator === "≠") return `${valueToJs(condition.left)} !== ${valueToJs(condition.right)}`;
+      if (condition.operator === "=") return scratchEqualsJs(valueToJs(condition.left), valueToJs(condition.right));
+      if (condition.operator === "≠") return `!${scratchEqualsJs(valueToJs(condition.left), valueToJs(condition.right))}`;
       if (condition.operator === "≤") return `${valueToJs(condition.left)} <= ${valueToJs(condition.right)}`;
       if (condition.operator === "≥") return `${valueToJs(condition.left)} >= ${valueToJs(condition.right)}`;
       return `${valueToJs(condition.left)} ${condition.operator} ${valueToJs(condition.right)}`;
@@ -185,6 +204,20 @@ case "setDirection":
           line(depth + 1, `const startY = sprite.y;`),
           line(depth + 1, `const targetX = api.mouseX();`),
           line(depth + 1, `const targetY = api.mouseY();`),
+          line(depth + 1, `const steps = Math.max(1, Math.ceil((Math.max(0, Number(${glideSeconds}) || 0) * 1000) / 16));`),
+          line(depth + 1, `for (let i = 1; i <= steps; i += 1) {`),
+          line(depth + 2, `const t = i / steps;`),
+          line(depth + 2, `sprite.setPosition(startX + (targetX - startX) * t, startY + (targetY - startY) * t);`),
+          line(depth + 2, `await api.nextFrame();`),
+          line(depth + 1, `}`),
+          line(depth, `}`),
+        ];
+        if (node.object === "random position" || node.object === "center" || node.object === "edge" || node.object === "Stage") return [
+          line(depth, `{`),
+          line(depth + 1, `const startX = sprite.x;`),
+          line(depth + 1, `const startY = sprite.y;`),
+          line(depth + 1, `const targetX = ${node.object === "random position" ? "Math.round(Math.random() * 480 - 240)" : "0"};`),
+          line(depth + 1, `const targetY = ${node.object === "random position" ? "Math.round(Math.random() * 360 - 180)" : "0"};`),
           line(depth + 1, `const steps = Math.max(1, Math.ceil((Math.max(0, Number(${glideSeconds}) || 0) * 1000) / 16));`),
           line(depth + 1, `for (let i = 1; i <= steps; i += 1) {`),
           line(depth + 2, `const t = i / steps;`),
@@ -298,11 +331,11 @@ case "setDirection":
       case "listDelete":
         return node.index === "all"
           ? [line(depth, `api.setList(${jsString(node.list)}, []);`)]
-          : [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = Math.max(0, Math.min(Math.floor(Number(${valueToJs(node.index)}) || 1) - 1, list.length - 1)); api.setList(${jsString(node.list)}, list.filter((_, i) => i !== index)); }`)];
+          : [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = ${listIndexJs(valueToJs(node.index), "list")}; api.setList(${jsString(node.list)}, list.filter((_, i) => i !== index)); }`)];
       case "listInsert":
-        return [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = Math.max(0, Math.min(list.length, Math.floor(Number(${valueToJs(node.index)}) || 1) - 1)); api.setList(${jsString(node.list)}, [...list.slice(0, index), ${valueToJs(node.item)}, ...list.slice(index)]); }`)];
+        return [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = ${listInsertIndexJs(valueToJs(node.index), "list")}; api.setList(${jsString(node.list)}, [...list.slice(0, index), ${valueToJs(node.item)}, ...list.slice(index)]); }`)];
       case "listReplace":
-        return [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = Math.max(0, Math.min(Math.floor(Number(${valueToJs(node.index)}) || 1) - 1, list.length - 1)); api.setList(${jsString(node.list)}, list.map((item, i) => i === index ? ${valueToJs(node.item)} : item)); }`)];
+        return [line(depth, `{ const list = api.getList(${jsString(node.list)}); const index = ${listIndexJs(valueToJs(node.index), "list")}; api.setList(${jsString(node.list)}, list.map((item, i) => i === index ? ${valueToJs(node.item)} : item)); }`)];
       case "showList":
         return [line(depth, `api.setListVisible?.(${jsString(node.list)}, true);`)];
       case "hideList":

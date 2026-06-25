@@ -157,12 +157,12 @@ function parseValue(block: Blockly.Block | null, fallback: ScriptValue = 0, bind
       return { type: "round", value: parseValue(block.getInputTargetBlock("NUM"), 0, bindings) };
     case "math_single": {
       const op = String(block.getFieldValue("OP"));
-      const operator = op === "ABS" ? "abs" : op === "NEG" ? "abs" : op === "LN" ? "sqrt" : "sqrt";
+      const operator = op === "ABS" ? "abs" : op === "LN" ? "ln" : op === "LOG10" ? "log" : op === "EXP" ? "e^" : op === "POW10" ? "10^" : "sqrt";
       return { type: "math", operator, value: parseValue(block.getInputTargetBlock("NUM"), 0, bindings) };
     }
     case "math_trig": {
       const op = String(block.getFieldValue("OP"));
-      const operator = op === "COS" ? "cos" : op === "TAN" ? "tan" : "sin";
+      const operator = op === "COS" ? "cos" : op === "TAN" ? "tan" : op === "ASIN" ? "asin" : op === "ACOS" ? "acos" : op === "ATAN" ? "atan" : "sin";
       return { type: "math", operator, value: parseValue(block.getInputTargetBlock("NUM"), 0, bindings) };
     }
     case "operator_join":

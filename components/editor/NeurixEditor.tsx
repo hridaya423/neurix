@@ -162,7 +162,7 @@ type NeurixEditorProps = {
   onSave?: (name: string, document: ProjectDocument) => void | Promise<void>;
 };
 
-const tones = ["#56CBF9", "#7FBEEB", "#AFBED1", "#EAC5D8", "#DBD8F0"];
+const tones = ["#9D8DF1", "#E9A47C", "#AFBED1", "#EAC5D8", "#DBD8F0"];
 
 const backdropFills = ["#f5f5f7", "#EAF6FF", "#FFF4DE", "#EEF8EA", "#F6ECFF", "#F8EFE8"];
 
@@ -189,8 +189,8 @@ function initialSprite(sprite: Omit<SavedSprite, "costumes" | "currentCostumeId"
 }
 
 const initialSprites: SavedSprite[] = [
-  initialSprite({ id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#56CBF9", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
-  initialSprite({ id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#7FBEEB", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
+  initialSprite({ id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#9D8DF1", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
+  initialSprite({ id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#E9A47C", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
   initialSprite({ id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [], cloneProgram: [] }),
 ];
 

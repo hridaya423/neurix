@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { AlertCircle } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { AuthScaffold } from "@/components/auth/AuthScaffold";
+import { Field } from "@/components/ui/Field";
+import { Button } from "@/components/ui/Button";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -21,7 +25,7 @@ export default function SignInPage() {
     setIsSubmitting(false);
 
     if (result.error) {
-      setError(result.error.message ?? "Could not sign in.");
+      setError(result.error.message ?? "Could not sign in. Check your details and try again.");
       return;
     }
 
@@ -29,67 +33,54 @@ export default function SignInPage() {
   };
 
   return (
-    <main className="auth-shell">
-      <div className="auth-bg-orb auth-bg-orb-1" />
-      <div className="auth-bg-orb auth-bg-orb-2" />
-      <div className="auth-bg-orb auth-bg-orb-3" />
-
+    <AuthScaffold
+      tone="lime"
+      eyebrow="Welcome back"
+      heading="Back to building."
+      lede="Your projects are saved and waiting. Sign in to keep creating with blocks and AI."
+    >
       <div className="auth-card">
-        <div className="auth-card-brand">
-          <div className="auth-card-mark">
-            <div className="auth-card-mark-inner" />
-          </div>
-          <span>Neurix</span>
-        </div>
-
         <div className="auth-card-header">
-          <h1>Welcome back</h1>
-          <p>Sign in to save projects, sprites, and AI-generated blocks.</p>
+          <h1>Sign in to <span className="lp-hi">Neurix</span></h1>
+          <p>Pick up your sprites, sounds, and AI-generated blocks.</p>
         </div>
 
-        <form className="auth-form" onSubmit={signIn}>
-          <div className="auth-field">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              type="email"
-              required
-              placeholder="you@example.com"
-            />
-          </div>
+        <form className="auth-form" onSubmit={signIn} noValidate>
+          <Field
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            autoComplete="email"
+            placeholder="you@example.com"
+          />
+          <Field
+            label="Password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            autoComplete="current-password"
+            placeholder="Enter your password"
+          />
 
-          <div className="auth-field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              required
-              placeholder="Enter your password"
-            />
-          </div>
+          {error && (
+            <div className="auth-error" role="alert">
+              <AlertCircle size={16} strokeWidth={2.2} />
+              <span>{error}</span>
+              </div>
+          )}
 
-          {error && <div className="auth-error">{error}</div>}
-
-          <button className="btn btn-primary auth-submit" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <span className="auth-spinner">
-                <span />
-              </span>
-            ) : (
-              "Sign in"
-            )}
-          </button>
+          <Button type="submit" size="lg" block loading={isSubmitting} className="auth-submit">
+            Sign in
+          </Button>
         </form>
 
         <div className="auth-footer">
-          New here?{" "}
-          <Link href="/sign-up">Create an account</Link>
+          New here? <Link href="/sign-up">Create an account</Link>
         </div>
       </div>
-    </main>
+    </AuthScaffold>
   );
 }

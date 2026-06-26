@@ -341,8 +341,9 @@ function scopeValue(value: ScriptValue, variableNames: Record<string, string>, l
       return { ...value, left: scopeValue(value.left, variableNames, listNames), right: scopeValue(value.right, variableNames, listNames) };
     case "round":
     case "math":
-    case "lengthOf":
       return { ...value, value: scopeValue(value.value, variableNames, listNames) };
+    case "lengthOf":
+      return { ...value, text: scopeValue(value.text, variableNames, listNames) };
     case "join":
       return { ...value, values: value.values.map((item) => scopeValue(item, variableNames, listNames)) };
     case "letterOf":
@@ -741,7 +742,7 @@ function monitorName(monitor: ScratchMonitor, key: "VARIABLE" | "LIST") {
 }
 
 function parseScratchMonitors(monitors: ScratchMonitor[]) {
-  const variableWatchers = monitors.flatMap((monitor, index) => {
+  const variableWatchers: NonNullable<ProjectDocument["variableWatchers"]> = monitors.flatMap((monitor, index) => {
     if (monitor.opcode !== "data_variable") return [];
     const name = monitorName(monitor, "VARIABLE");
     if (!name) return [];
@@ -755,7 +756,7 @@ function parseScratchMonitors(monitors: ScratchMonitor[]) {
     }];
   });
 
-  const listWatchers = monitors.flatMap((monitor, index) => {
+  const listWatchers: NonNullable<ProjectDocument["listWatchers"]> = monitors.flatMap((monitor, index) => {
     if (monitor.opcode !== "data_listcontents") return [];
     const name = monitorName(monitor, "LIST");
     if (!name) return [];

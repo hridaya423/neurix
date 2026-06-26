@@ -69,5 +69,3 @@ Check the project before shipping changes:
 npm run lint
 npm run build
 ```
-
-Slight AI assistance was used in README.

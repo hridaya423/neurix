@@ -96,8 +96,8 @@ const stage = {
 };
 
 const initialSprites: SavedSprite[] = [
-  initialSprite({ id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#56CBF9", visible: true, workspaceState: null, program: [] }),
-  initialSprite({ id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#7FBEEB", visible: true, workspaceState: null, program: [] }),
+  initialSprite({ id: "sprite-1", name: "Kite", x: 0, y: 0, size: 100, direction: 90, layer: 0, tone: "#9D8DF1", visible: true, workspaceState: null, program: [] }),
+  initialSprite({ id: "sprite-2", name: "Rook", x: -108, y: 56, size: 76, direction: 28, layer: 1, tone: "#E9A47C", visible: true, workspaceState: null, program: [] }),
   initialSprite({ id: "sprite-3", name: "Moss", x: 122, y: 88, size: 64, direction: -18, layer: 2, tone: "#AFBED1", visible: true, workspaceState: null, program: [] }),
 ];
 
@@ -242,6 +242,7 @@ async function replaceProjectSprites(
     .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
     .take(500);
   const incomingKeys = new Set(sprites.map((item) => item.id));
+  const existingByKey = new Map(existing.map((row) => [row.spriteKey, row]));
 
   for (const row of existing) {
     if (!incomingKeys.has(row.spriteKey)) {
@@ -250,10 +251,7 @@ async function replaceProjectSprites(
   }
 
   for (const [order, item] of sprites.entries()) {
-    const existingSprite = await ctx.db
-      .query("projectSprites")
-      .withIndex("by_projectId_and_spriteKey", (q) => q.eq("projectId", projectId).eq("spriteKey", item.id))
-      .unique();
+    const existingSprite = existingByKey.get(item.id);
 
     if (existingSprite) {
       await ctx.db.patch(existingSprite._id, { sprite: item, order, updatedAt });
@@ -344,7 +342,7 @@ export const createProject = mutation({
       createdAt: now,
       updatedAt: now,
       lastOpenedAt: now,
-      thumbnailTone: "#56CBF9",
+      thumbnailTone: "#9D8DF1",
       spriteCount: initialSprites.length,
       isDeleted: false,
     });
@@ -410,7 +408,7 @@ export const saveProject = mutation({
       updatedAt: now,
       lastOpenedAt: now,
       spriteCount: args.document.sprites.length,
-      thumbnailTone: args.document.sprites[0]?.tone ?? "#56CBF9",
+      thumbnailTone: args.document.sprites[0]?.tone ?? "#9D8DF1",
     });
   },
 });

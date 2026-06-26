@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { AlertCircle } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { AuthScaffold } from "@/components/auth/AuthScaffold";
+import { Field } from "@/components/ui/Field";
+import { Button } from "@/components/ui/Button";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -13,8 +17,11 @@ export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const passwordTooShort = password.length > 0 && password.length < 8;
+
   const signUp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (passwordTooShort) return;
     setIsSubmitting(true);
     setError(null);
 
@@ -22,7 +29,7 @@ export default function SignUpPage() {
     setIsSubmitting(false);
 
     if (result.error) {
-      setError(result.error.message ?? "Could not create account.");
+      setError(result.error.message ?? "Could not create account. Please try again.");
       return;
     }
 
@@ -30,79 +37,72 @@ export default function SignUpPage() {
   };
 
   return (
-    <main className="auth-shell">
-      <div className="auth-bg-orb auth-bg-orb-1" />
-      <div className="auth-bg-orb auth-bg-orb-2" />
-      <div className="auth-bg-orb auth-bg-orb-3" />
-
+    <AuthScaffold
+      tone="lilac"
+      eyebrow="Start for free"
+      heading="Block coding that grows into real code."
+      lede="Create an account to save projects, import .sb3 files, and unlock AI block generation."
+    >
       <div className="auth-card">
-        <div className="auth-card-brand">
-          <div className="auth-card-mark">
-            <div className="auth-card-mark-inner" />
-          </div>
-          <span>Neurix</span>
-        </div>
-
         <div className="auth-card-header">
-          <h1>Create your account</h1>
+          <h1>Create your <span className="lp-hi">account</span></h1>
           <p>Start saving Scratch-like projects with AI-powered blocks.</p>
         </div>
 
-        <form className="auth-form" onSubmit={signUp}>
-          <div className="auth-field">
-            <label htmlFor="name">Name</label>
-            <input
-              id="name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              placeholder="Your name"
-            />
-          </div>
+        <form className="auth-form" onSubmit={signUp} noValidate>
+          <Field
+            label="Name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+            autoComplete="name"
+            placeholder="Your name"
+          />
+          <Field
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            autoComplete="email"
+            placeholder="you@example.com"
+          />
+          <Field
+            label="Password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            minLength={8}
+            autoComplete="new-password"
+            placeholder="At least 8 characters"
+            hint="Use at least 8 characters."
+            error={passwordTooShort ? "Password must be at least 8 characters." : undefined}
+          />
 
-          <div className="auth-field">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              type="email"
-              required
-              placeholder="you@example.com"
-            />
-          </div>
+          {error && (
+            <div className="auth-error" role="alert">
+              <AlertCircle size={16} strokeWidth={2.2} />
+              <span>{error}</span>
+            </div>
+          )}
 
-          <div className="auth-field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              required
-              minLength={8}
-              placeholder="At least 8 characters"
-            />
-          </div>
-
-          {error && <div className="auth-error">{error}</div>}
-
-          <button className="btn btn-primary auth-submit" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <span className="auth-spinner">
-                <span />
-              </span>
-            ) : (
-              "Create account"
-            )}
-          </button>
+          <Button
+            type="submit"
+            size="lg"
+            block
+            loading={isSubmitting}
+            disabled={passwordTooShort}
+            className="auth-submit"
+          >
+            Create account
+          </Button>
         </form>
 
         <div className="auth-footer">
-          Already have an account?{" "}
-          <Link href="/sign-in">Sign in</Link>
+          Already have an account? <Link href="/sign-in">Sign in</Link>
         </div>
       </div>
-    </main>
+    </AuthScaffold>
   );
 }

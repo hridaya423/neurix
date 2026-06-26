@@ -542,7 +542,7 @@ const CUSTOM_BLOCKS = [
   {
     type: "looks_set_tone",
     message0: "set color to %1",
-    args0: [{ type: "field_colour", name: "TONE", colour: "#56CBF9" }],
+    args0: [{ type: "field_colour", name: "TONE", colour: "#9D8DF1" }],
     previousStatement: null,
     nextStatement: null,
     style: "looks_blocks",
@@ -3392,10 +3392,18 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
       );
     };
 
+    let emitTimer: number | null = null;
+    const scheduleWorkspaceChange = () => {
+      if (emitTimer !== null) window.clearTimeout(emitTimer);
+      emitTimer = window.setTimeout(() => {
+        emitTimer = null;
+        emitWorkspaceChange();
+      }, 120);
+    };
+
     let lastCustomBlockNames = "";
     workspace.addChangeListener((event) => {
       updateSelectedCustomName();
-      attachExplainContextMenus();
 
       const customNames = getCustomBlockNames(workspace).join(",");
       if (customNames !== lastCustomBlockNames) {
@@ -3416,6 +3424,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
         scheduleCustomDefinitionArgumentReporterRepair(workspace);
         refreshAllCustomCallShapes(workspace);
         refreshListFields(workspace, listNamesRef.current);
+        if (changeEvent.type === "create" || changeEvent.type === "delete") attachExplainContextMenus();
       }
 
       if (event.isUiEvent) {
@@ -3423,7 +3432,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
         return;
       }
       if (isHydratingWorkspace) return;
-      emitWorkspaceChange();
+      scheduleWorkspaceChange();
     });
 
     attachExplainContextMenus();
@@ -3441,6 +3450,7 @@ export function BlocklyPanel({ activeSpriteId, activeSpriteName, targetType = "s
 
     return () => {
       window.clearTimeout(hydrationTimer);
+      if (emitTimer !== null) window.clearTimeout(emitTimer);
       for (const timer of customDefinitionRepairTimers.get(workspace) ?? []) window.clearTimeout(timer);
       customDefinitionRepairTimers.delete(workspace);
       removeAllWatcherCheckboxes(workspace);

@@ -1,14 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
-import NeurixEditor, { type ProjectDocument } from "@/components/editor/NeurixEditor";
+import type { ProjectDocument } from "@/components/editor/NeurixEditor";
 import { authClient } from "@/lib/auth-client";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+const NeurixEditor = dynamic(() => import("@/components/editor/NeurixEditor"), {
+  ssr: false,
+  loading: () => <LoadingCard label="Preparing editor" />,
+});
 
 function LoadingCard({ label }: { label: string }) {
   return (
@@ -21,6 +27,29 @@ function LoadingCard({ label }: { label: string }) {
       </div>
     </main>
   );
+}
+
+function markProjectLoad(label: string) {
+  if (process.env.NODE_ENV !== "development" || typeof performance === "undefined") return;
+  performance.mark(`project:${label}`);
+  const start = performance.getEntriesByName("project:start").at(-1);
+  const current = performance.getEntriesByName(`project:${label}`).at(-1);
+  if (start && current) {
+    console.info(`[perf] project ${label}: ${Math.round(current.startTime - start.startTime)}ms`);
+  }
+}
+
+function logProjectStats(document: ProjectDocument) {
+  if (process.env.NODE_ENV !== "development") return;
+  const spriteSounds = document.sprites.reduce((count, sprite) => count + (sprite.sounds?.length ?? 0), 0);
+  const spriteCostumes = document.sprites.reduce((count, sprite) => count + (sprite.costumes?.length ?? 0), 0);
+  console.table({
+    sprites: document.sprites.length,
+    costumes: spriteCostumes,
+    sounds: (document.stage.sounds?.length ?? 0) + spriteSounds,
+    stageBlocks: document.stage.program?.length ?? 0,
+    spriteBlocks: document.sprites.reduce((count, sprite) => count + sprite.program.length, 0),
+  });
 }
 
 function normalizeDocument(document: unknown): ProjectDocument {
@@ -44,27 +73,27 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
   const data = useQuery(api.projects.getProject, session.data ? { projectId: convexProjectId } : "skip");
   const saveProject = useMutation(api.projects.saveProject);
   const generateSoundUploadUrl = useMutation(api.projects.generateSoundUploadUrl);
-  const touchProject = useMutation(api.projects.touchProject);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const latestRef = useRef<{ name: string; document: ProjectDocument } | null>(null);
-  const lastSavedRef = useRef<string | null>(null);
   const didHydrateRef = useRef(false);
-  const touchedProjectRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    markProjectLoad("start");
+  }, []);
 
   useEffect(() => {
     if (!session.isPending && !session.data) {
       router.replace("/sign-in");
     }
+    if (!session.isPending && session.data) markProjectLoad("auth");
   }, [router, session.data, session.isPending]);
 
   useEffect(() => {
-    if (data && touchedProjectRef.current !== projectId) {
-      touchedProjectRef.current = projectId;
-      void touchProject({ projectId: convexProjectId }).catch(() => {
-        touchedProjectRef.current = null;
-      });
+    if (data) {
+      markProjectLoad("data");
+      logProjectStats(normalizeDocument(data.document));
     }
-  }, [convexProjectId, data, projectId, touchProject]);
+  }, [data]);
 
   const initialDocument = useMemo(() => data ? normalizeDocument(data.document) : null, [data]);
 
@@ -115,7 +144,6 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
     try {
       const documentForSave = await prepareDocumentForSave(document);
       await saveProject({ projectId: convexProjectId, name, document: documentForSave });
-      lastSavedRef.current = JSON.stringify({ name, document });
       setSaveStatus("saved");
     } catch {
       setSaveStatus("error");
@@ -123,17 +151,14 @@ export default function ProjectEditorClient({ projectId }: { projectId: string }
   }, [convexProjectId, prepareDocumentForSave, saveProject]);
 
   const handleChange = useCallback((name: string, document: ProjectDocument) => {
-    const snapshot = JSON.stringify({ name, document });
     latestRef.current = { name, document };
 
     if (!didHydrateRef.current) {
       didHydrateRef.current = true;
-      lastSavedRef.current = snapshot;
+      markProjectLoad("editor-ready");
       setSaveStatus("saved");
       return;
     }
-
-    if (snapshot === lastSavedRef.current) return;
 
     setSaveStatus("idle");
   }, []);
